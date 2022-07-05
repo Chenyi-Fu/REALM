@@ -70,10 +70,6 @@ class REALM():
         self.__log_stream = 0
         self.__log_file = 'model_log_stream'
 
-    # def set_data(self, data):
-    #     for key, value in data.items():
-    #         if hasattr(self, key) and key != 'solver':
-    #             setattr(self, key, value)
     '''=============== Step 1. Define model and model size ====================='''
     def set_solver(self, solver='cplex'):
         if solver == 'cplex':
@@ -321,10 +317,8 @@ class REALM():
                         self.set_transition_compartment_beta(flow=(m, m, j, t),
                                                              beta=beta3, gamma=gamma3, phi=phi3, psi=psi3,
                                                              alpha=alpha3, opt=None)
-                        # print(self.compartment_info[m]['tocpm'][m])
                     else:
                         self.set_transition_compartment(n=m, m=m, prob=prob, opt=None)
-                        # print(n, self.compartment_info[n]['fromcpm'].keys())
 
     def set_transition_compartment_norm(self, flow = None, betabar= None, gammabar= None, phibar= None, psibar= None,
                                         alphabar=None, opt = None):
@@ -334,7 +328,6 @@ class REALM():
             (n, m, j, t) = flow
             temp = self.compartment_name.keys()
             if n in temp and m in temp:
-                # print(self.compartment_info[n]['tocpm'][m]['q_norm'])
                 if opt == None:
                     if (j,t) in self.compartment_info[n]['tocpm'][m]['q_norm'].keys():
                         self.compartment_info[n]['tocpm'][m]['q_norm'][(j,t)] \
@@ -1393,7 +1386,6 @@ class REALM():
 
             for n in self.compartment_name.keys():
                 for m in self.compartment_info[n]['fromcpm'].keys():
-                    # print(n, m, self.compartment_info[n]['fromcpm'][m]['q_dp'].keys())
                     for j in range(self.group):
                         for t in range(self.Time-1):
                             if (j,t) in self.compartment_info[n]['fromcpm'][m]['q_dp'].keys():
@@ -1539,7 +1531,6 @@ class REALM():
 
             for n in self.compartment_name.keys():
                 for m in self.compartment_info[n]['fromcpm'].keys():
-                    # print(n, m, self.compartment_info[n]['fromcpm'][m]['q_dp'].keys())
                     for j in range(self.group):
                         for t in range(self.Time-1):
                             if (j,t) in self.compartment_info[n]['fromcpm'][m]['q_dp'].keys():
@@ -2049,7 +2040,6 @@ class REALM():
                                         "System_stepfunction_lower_q." + str(m) + "." + str(n) + "." + str(j) \
                                         + "." + str(t) + "." + str(l))
 
-
                 for mm in self.compartment_name.keys():
                     for k in range(self.group):
                         for j in range(self.group):
@@ -2456,7 +2446,6 @@ class REALM():
                     coef2.append(fcoef[i])
             if len(dvar) == len(dcoef) != [] and \
                     all([isinstance(dvar[i], str) and dvar[i] in self.custom_var.keys() for i in range(len(dvar))]):
-                # for i in range(len(dvar)):
                 var3.extend(dvar)
                 coef3.extend(dcoef)
 
@@ -3176,7 +3165,6 @@ class REALM():
                                          for ii in range(len(self.constraint[name][0]))) <= -self.constraint[name][3]),
                             name)
                 elif self.constraint[name][-1] == 'Robustness':
-                    print(name)
                     self.dvar_robust.update({name: []})
                     self.dcoef_robust.update({name: []})
                     for i in range(len(self.constraint[name][0])):
@@ -3373,8 +3361,8 @@ class REALM():
                   for m in range(max(self.compartment_name.keys()) + 1)]
                  for n in range(max(self.compartment_name.keys()) + 1)]
             Xc = {}
-            # self.model.set_results_stream(None)
-            # self.model.set_log_stream(None)
+            self.model.set_results_stream(None)
+            self.model.set_log_stream(None)
             if ct != None:
                 self.model.parameters.timelimit.set(ct)
             self.model.solve()
@@ -3395,15 +3383,13 @@ class REALM():
             except:
                 return 0
         elif self.types == 'Robustness' and target != None:
-            # self.model.set_results_stream(None)
-            # self.model.set_log_stream(None)
+            self.model.set_results_stream(None)
+            self.model.set_log_stream(None)
             T0 = []
             if self.objtype:
                 self.robustconstraint.update({'obj': [0, self.theta, self.theta * 10, 0]})
             T1 = list(self.robustconstraint.keys())
 
-            # print('T1=',T1)
-            # print(self.robustconstraint)
             T1.sort()
             p = 0
             print('\n============================================')
@@ -3707,8 +3693,8 @@ class REALM():
             except:
                 return 0
         elif self.types == 'Robustness' and target != None:
-            # self.model.set_results_stream(None)
-            # self.model.set_log_stream(None)
+            self.model.set_results_stream(None)
+            self.model.set_log_stream(None)
             T0 = []
             if self.objtype:
                 self.robustconstraint.update({'obj': [0, self.theta, self.theta * 10, 0]})
@@ -3748,7 +3734,6 @@ class REALM():
                                                         self.model.getVarByName(self.dvar_robust[name][i]),
                                                         self.dcoef_robust[name][i] ** 2 * 0.5 / self.robustconstraint[name][1])
                         else:
-                            # m.chgCoeff(m.getConstrByName('c0'), m.getVarByName('x'), 2)
                             for ii in range(len(self.robustobj)):
                                 self.model.getVarByName(self.robustobj[ii][0]).Obj = \
                                     0.5 * self.robustobj[ii][1] ** 2 / self.robustconstraint[name][1]
@@ -3765,7 +3750,6 @@ class REALM():
                     if objective_value < target:
                         num_infeasible = 0
                         time.sleep(5)
-                        # self.model.write('2222.lp')
                         self.model.write('modelrobust_SO_' + str(round(target, 2)) + '.mps')
                         status = self.model.getAttr('status')
                         bestobj = self.model.getAttr('ObjVal')
@@ -4011,7 +3995,6 @@ class REALM():
                 else:
                     p = int(p / self.gap + 1) * self.gap
         else:
-            # print(self.compartment_info[m]['local']['p_idp'])
             timemax = len(self.compartment_info[m]['local']['p_idp'][j][k]) - 1
             p = self.compartment_info[m]['local']['p_idp'][j][k][min(t,timemax)]
         return p
@@ -4065,7 +4048,6 @@ class REALM():
 
     def DeterPrediction2(self, types=None, randomq=None):
         '''Deterministic Epidemiological Prediction Model'''
-        # population.insert(0,[sum([self.population[n][j] for n in range(self.compartment)]) for j in range(self.group)])
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys())+1)]
         randomp = None
@@ -4296,13 +4278,9 @@ class REALM():
 
     def StochaPrediction(self, randomq=None):
         '''Stochastic Epidemiological Prediction Model'''
-        # population.insert(0,[sum([self.population[n][j] for n in range(self.compartment)]) for j in range(self.group)])
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
         randomp = None
-        # Y = [[[0 for t in range(self.Time)] for j in range(self.group)]
-        #      for n in range(max(self.compartment_name.keys()) + 1)]
-        # Z = [[0 for t in range(self.Time)] for n in range(max(self.compartment_name.keys()) + 1)]
         if self.x != None:
             x = copy.deepcopy(self.x)
         else:
@@ -4319,18 +4297,11 @@ class REALM():
                       for n in range(max(self.compartment_name.keys()) + 1)]
 
         for n in self.compartment_name.keys():
-            # Z[n][0] = sum([self.compartment_info[n]['local']['population'][j] for j in range(self.group)])
             for j in range(self.group):
                 X[n][j][0] = self.compartment_info[n]['local']['population'][j]
-                # Y[n][j][0] = self.compartment_info[n]['local']['population'][j]
 
-        # if max([sum(population[n]) for n in range(max(self.compartment_name.keys()) + 1)]) < 10000:
         X = [[[X[n][j][t] * 1000 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
-        # Y = [[[Y[n][j][t] * 1000 for t in range(self.Time)] for j in range(self.group)]
-        #      for n in range(max(self.compartment_name.keys()) + 1)]
-        # Z = [[Z[n][t] * 1000 for t in range(self.Time)]
-        #      for n in range(max(self.compartment_name.keys()) + 1)]
         x = [[[[x[n][m][j][t]*1000 for t in range(self.Time)] for j in range(self.group)]
               for m in range(max(self.compartment_name.keys()) + 1)]
              for n in range(max(self.compartment_name.keys()) + 1)]
@@ -4577,9 +4548,9 @@ class REALM():
             os.remove(filename+'.xlsx')
         except:
             pass
-        outwb = openpyxl.Workbook()  # 打开一个将写的文件
+        outwb = openpyxl.Workbook()
         if compartment != None:
-            outws = outwb.create_sheet('Simulated compartment')  # 在将写的文件创建sheet
+            outws = outwb.create_sheet('Simulated compartment')
             head = ['Sample no.', 'Compartment name', 'Group'] \
                    + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
             for i in range(len(head)):
@@ -4594,7 +4565,7 @@ class REALM():
                         for t in range(len(compartment[i][n][j])):
                             outws.cell(row=2 + p, column=4 + t).value = compartment[i][n][j][t]
                         p += 1
-            outws2 = outwb.create_sheet('Simulated compartment (total)')  # 在将写的文件创建sheet
+            outws2 = outwb.create_sheet('Simulated compartment (total)')
             head = ['Sample no.', 'Compartment name'] \
                    + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
             for i in range(len(head)):
@@ -4655,76 +4626,6 @@ class REALM():
                 outws5.cell(row=2 + ii, column=1).value = n
                 outws5.cell(row=2 + ii, column=2).value = custom[n]
                 ii += 1
-
-        # workbook = xlwt.Workbook(encoding='utf-8')
-        # if compartment != None:
-        #     worksheet1 = workbook.add_sheet('Simulated compartment')
-        #     worksheet1.write(0, 0, 'Compartment')
-        #     worksheet1.write(1, 0, 'Sample no.')
-        #     worksheet1.write(1, 1, 'Compartment name')
-        #     worksheet1.write(1, 2, 'Group')
-        #     worksheet1.write(1, 3, 'Time Sequence')
-        #     p = 0
-        #     for i in range(len(compartment)):
-        #         for n in range(len(compartment[i])):
-        #             for j in range(len(compartment[i][n])):
-        #                 worksheet1.write(2 + p, 0, i+1)
-        #                 worksheet1.write(2 + p, 1, self.compartment_name[n])
-        #                 worksheet1.write(2 + p, 2, j)
-        #                 for t in range(len(compartment[i][n][j])):
-        #                     worksheet1.write(2 + p, 3 + t, compartment[i][n][j][t])
-        #                 p += 1
-        #     worksheet2 = workbook.add_sheet('Simulated compartment (total)')
-        #     worksheet2.write(0, 0, 'Compartment')
-        #     worksheet2.write(1, 0, 'Sample no.')
-        #     worksheet2.write(1, 1, 'Compartment name')
-        #     worksheet2.write(1, 2, 'Time Sequence')
-        #     p = 0
-        #     for i in range(len(compartment)):
-        #         for n in range(len(self.compartment_name)):
-        #             worksheet2.write(2 + p, 0, i+1)
-        #             worksheet2.write(2 + p, 1, self.compartment_name[n])
-        #             for t in range(self.Time):
-        #                 worksheet2.write(2 + p, 2 + t, sum([compartment[i][n][j][t] for j in range(len(compartment[i][n]))]))
-        #             p += 1
-        #     for n in range(len(self.compartment_name)):
-        #         worksheet2.write(2 + p, 0, 'avg')
-        #         worksheet2.write(2 + p, 1, self.compartment_name[n])
-        #         for t in range(self.Time):
-        #             worksheet2.write(2 + p, 2 + t,
-        #                              sum([compartment[i][n][j][t] for i in range(len(compartment))
-        #                                   for j in range(len(compartment[i][n]))])/ len(compartment) )
-        #         p += 1
-        # if dvar != None:
-        #     worksheet4 = workbook.add_sheet('Varables')
-        #     worksheet4.write(0, 0, 'Variables')
-        #     worksheet4.write(1, 0, 'Compartment (From)')
-        #     worksheet4.write(1, 1, 'Compartment (To)')
-        #     worksheet4.write(1, 2, 'Groups')
-        #     worksheet4.write(1, 3, 'Time Sequence')
-        #     ii = 0
-        #     for n in range(len(dvar)):
-        #         for m in range(len(dvar[n])):
-        #             if sum([dvar[n][m][j][t] for j in range(len(dvar[n][m])) for t in range(len(dvar[n][m][j]))]) != 0:
-        #                 for j in range(len(dvar[n][m])):
-        #                     worksheet4.write(2 + ii, 0, self.compartment_name[n])
-        #                     worksheet4.write(2 + ii, 1, self.compartment_name[m])
-        #                     worksheet4.write(2 + ii, 2, j)
-        #                     for t in range(len(dvar[n][m][j])):
-        #                         worksheet4.write(2 + ii, 3 + t, dvar[n][m][j][t])
-        #                     ii += 1
-        # if lhs != None:
-        #     worksheet5 = workbook.add_sheet('LHS')
-        #     worksheet5.write(0, 0, 'Value of the LHS of constraints and the objective function')
-        #     worksheet5.write(1, 0, 'Obj/Constraint name')
-        #     worksheet5.write(1, 1, 'LHS (Simulation)')
-        #     ii = 0
-        #     for i in range(len(lhs)):
-        #         worksheet5.write(2 + ii, 0, lhs[i][0])
-        #         for s in range(len(lhs[i][1])):
-        #             worksheet5.write(2 + ii, 1 + s, lhs[i][1][s])
-        #         ii += 1
-        # workbook.save(filename + '.xls')
 
         outwb.save(filename + '.xlsx')
         outwb.close()
