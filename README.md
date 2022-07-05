@@ -7,7 +7,8 @@ This repository contains multiple files, most of them being archived in the `REA
 1. `REALM/REAML.py` - The current version of main code implemented in our work. It contains multiple functions and users can implement their deterministic/stochastic/robust epidemiological forecast and deterministic/robust optimization models in a straightforward fashion.
     + Number of compartments $N$, number of population groups $J$, and length of planning horizon $T$;  
     + Name and initial population size of each compartment;  
-    + Transition probability $\hat{q}^{m,n}$ between each pair of compartments $(m,n)$;   
+    + Transition probability $\hat{q}^{m,n}$  
+    between each pair of compartments $(m,n)$;   
     + Support set (lower and upper bounds) of decision variables;
     + Cost parameters used in objective function;
     + Coefficients in the operational constraints;
@@ -93,14 +94,15 @@ user.set_custom_variable(name=['u.' + str(j) + '.' + str(s) for j in range(group
 ```
 
 ## Step 3 Define transition probability between compartment and compartment  
-Define the decision-independent transition probability by function ``#.set_transition_compartment'' with four inputs.
+Define the decision-independent transition probability by function `#.set_transition_compartment` with four inputs.
 1) Inputs 'n' and 'm' are defined the flow outgoing from compartment 'n' and incoming to compartment 'm';
-2) Input 'prob' is a J * T list, representing the transition probability from compartment 'n' to 'm' in group j in time t.
-   The format of 'prob' can be (a) a float/int number, which means for all t in [T] and j in [J], the components in
-       q^{n,m} are same; (b) a list with T components, which means the upper bounds of the components for j in [J]
-       are same; (c) a list with J components, which means the upper bounds of the components for all
-       t in [T] are same, if J = T, rule (c) is prior to rule (b); (d) a list including J*T components;
-3) Input 'opt' is OPTIONAL. If 'opt='delate'', all transition probability from compartment 'n' will be removed.
+2) Input 'prob' is a $J * T$ list, representing the transition probability from compartment 'n' to 'm' in group $j$ in time $t$.
+   The format of 'prob' can be 
+   (a) a float/int number, which means for all $t in [T]$ and $j in [J]$, the components in $q^{n,m}$ are same;   
+   (b) a list with $T$ components, which means the upper bounds of the components for $j in [J]$ are same;   
+   (c) a list with $J$ components, which means the upper bounds of the components for all $t in [T]$ are same, if $J = T$, rule (c) is prior to rule (b);   
+   (d) a list including $J*T$ components;  
+3) Input `opt` is OPTIONAL. If `opt='delate'`, all transition probability from compartment `n` will be removed.
 ```
 TransitionProb = [('E','I'), ('I','R'), ('I','D'), ('M','R'), ('Q','D'), ('H','D'), ('H','R')]
 q = data.q
@@ -110,9 +112,11 @@ for i in TransitionProb:
 Define the decision-dependent transition probability eta between a pair of compartments by function `#.set_transition_compartment_dp`. There are ten inputs:
 1) the first input `flow` is a tuple including four components. The first and second component are the names of start and end compartments; the third component is the index of group; and the fourth component is the index of time;
 2) the second to fourth inputs `beta`, `gamma` and `alpha` are all OPTIONAL, which are the coefficients of compartment variable $X$, flow variable $x$ and constant term in the molecule of $\eta$, respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 0.
-3) the fifth to seven inputs `betadeno`, `gammadeno` and `alphadeno` are OPTIONAL, which are the coefficients of compartment variable $X$, 
+3) the fifth to seven inputs `betadeno`, `gammadeno` and `alphadeno` are OPTIONAL, 
+which are the coefficients of compartment variable $X$, 
 flow variable $x$ 
-and constant term in the denominator of $\eta$, respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 1.
+and constant term in the denominator of $\eta$, 
+respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 1.
 5) the eight and ninth inputs `lb` and `ub` are OPTIONAL, which are the lower and upper bounds of eta, i.e., $max(lb, \eta(X,x)) <=\eta <= min(ub, \eta(X,x))$; The default values are -1e+20 and 1e+20, respectively; Note that `lb` and `ub` are only used in the prediction model (simulation) but will be ingored in the optimization model.
 6) the last input `opt` is OPTIONAL. If `opt='delate'`, all transition probability from compartment $n$ to $m$ will be removed.
 ```
@@ -125,7 +129,7 @@ for j in range(group):
                                            beta=betaSE, gamma=gammaSE, alpha=0, opt=None)
 ```
 
-## Step 5. Define other constraints
+## Step 4. Define other constraints
 Define the customized linear constraint by function `#.custom_lp`.
 There are nine inputs:
 1) the first input `fvar` is a list including some compartment variables and flow variables. The compartment variable
@@ -187,12 +191,12 @@ for j in range(group):
 Define the customized quadratic constraint by function `#.custom_qp`.
 There are twelve inputs:
 1) the formats of the first four inputs `fvarlp`, `fcoeflp`, `dvarlp` and `dcoeflp` are same to the inputs `fvar`,
-       `fcoef`, `dvar`, `dcoef` defined in `#.custom_lp`;
+       `fcoef`, `dvar`, `dcoef` defined in `#.custom_lp`;  
 2) the fifth and seventh inputs 'fvarqp' and 'dvarqp' are the lists with the same formats to 'fvarlp' and 'dvarlp',
-       respectively, which are the quadratic terms (i.e., variable^2);
+       respectively, which are the quadratic terms (i.e., variable^2);  
 3) the sixth and eighth inputs `fcoefqp` and `dcoefqp` are the lists of the coefficients of the components in `fvarqp`
-       and 'dvarqp', respectively;
-4) the ninth, tenth and eleventh inputs `sense`, `rhs` and `name` are same to those defined in `#.custom_lp`;
+       and 'dvarqp', respectively;  
+4) the ninth, tenth and eleventh inputs `sense`, `rhs` and `name` are same to those defined in `#.custom_lp`;  
 5) the twelfth input `option` is OPTIONAL. If `opt='clear'`, then all customized quadratic constraints are removed.
 For simplification, we only show the quadratic constraints used in SEIHR model as below.
        That is, $$0.25 * (\phi_1)^2 + C_{j,t,s} <= 0.25 * (\phi_2)^2$$
