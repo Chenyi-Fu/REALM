@@ -333,7 +333,7 @@ The following example is to generate 1000 samples corresponding to random transi
        and Uniform$(0.9,1.1)$, respectively.
 ```
 sample = 1000
-randomq = user.Sample_generation(n=['S','I'], m=['E','D'], lb=[1, 1], ub=[0.9, 1.1], size=sample)
+randomq = user.Sample_generation(n=['S','I'], m=['E','D'], lb=[0.9, 1], ub=[1, 1.1], size=sample)
 #Define the flow variables (user.x) in simulation (prediction)
 x = [[[[0 for t in range(period)] for j in range(group)] for m in range(compart_num)] for n in range(compart_num)]
 x[2][3] = [[xopt[2][3][j][t] for t in range(period)] for j in range(group)]  # flow variable from I to M
