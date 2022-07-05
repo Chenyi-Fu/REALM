@@ -253,7 +253,7 @@ Define the solution approach. There are three settings:
              `compartment1` and `compartment2` are the start and end compartments associated with a flow variable.
              `val` is a $J*T$ list and each component is the value of group $j$ in time $t$.  
              For example:
-              user.set_initial_solution(compartment1='S', compartment2='SS', val=[[50 for t in range(period)] for j in range(group)])
+              user.set_initial_solution(compartment1='S', compartment2='E', val=[[50 for t in range(period)] for j in range(group)])
 ```
 user.set_approximation(opt='SO')
 ```
