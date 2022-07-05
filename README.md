@@ -7,7 +7,7 @@ This repository contains multiple files, most of them being archived in the `REA
 1. `REALM/REAML.py` - The current version of main code implemented in our work. It contains multiple functions and users can implement their deterministic/stochastic/robust epidemiological forecast and deterministic/robust optimization models in a straightforward fashion.
     + Number of compartments $N$, number of population groups $J$, and length of planning horizon $T$;  
     + Name and initial population size of each compartment;  
-    + Transition probability $\hat{q}^{m,n}$  
+    + Transition probability $\hat{q}^{m,n}$
     between each pair of compartments $(m,n)$;   
     + Support set (lower and upper bounds) of decision variables;
     + Cost parameters used in objective function;
@@ -98,9 +98,9 @@ Define the decision-independent transition probability by function `#.set_transi
 1) Inputs 'n' and 'm' are defined the flow outgoing from compartment 'n' and incoming to compartment 'm';
 2) Input 'prob' is a $J * T$ list, representing the transition probability from compartment 'n' to 'm' in group $j$ in time $t$.
    The format of 'prob' can be 
-   (a) a float/int number, which means for all $t in [T]$ and $j in [J]$, the components in $q^{n,m}$ are same;   
-   (b) a list with $T$ components, which means the upper bounds of the components for $j in [J]$ are same;   
-   (c) a list with $J$ components, which means the upper bounds of the components for all $t in [T]$ are same, if $J = T$, rule (c) is prior to rule (b);   
+   (a) a float/int number, which means for all $t \in [T]$ and $j \in [J]$, the components in $q^{n,m}$ are same;   
+   (b) a list with $T$ components, which means the upper bounds of the components for $j \in [J]$ are same;   
+   (c) a list with $J$ components, which means the upper bounds of the components for all $t \in [T]$ are same, if $J = T$, rule (c) is prior to rule (b);   
    (d) a list including $J*T$ components;  
 3) Input `opt` is OPTIONAL. If `opt='delate'`, all transition probability from compartment `n` will be removed.
 ```
@@ -111,13 +111,15 @@ for i in TransitionProb:
 ```
 Define the decision-dependent transition probability eta between a pair of compartments by function `#.set_transition_compartment_dp`. There are ten inputs:
 1) the first input `flow` is a tuple including four components. The first and second component are the names of start and end compartments; the third component is the index of group; and the fourth component is the index of time;
-2) the second to fourth inputs `beta`, `gamma` and `alpha` are all OPTIONAL, which are the coefficients of compartment variable $X$, flow variable $x$ and constant term in the molecule of $\eta$, respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 0.
-3) the fifth to seven inputs `betadeno`, `gammadeno` and `alphadeno` are OPTIONAL, 
+2) the second to fourth inputs `beta`, `gamma` and `alpha` are all OPTIONAL, which are the coefficients of compartment variable $X$, 
+flow variable $x$ 
+and constant term in the molecule of $\eta$, respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 0.
+4) the fifth to seven inputs `betadeno`, `gammadeno` and `alphadeno` are OPTIONAL, 
 which are the coefficients of compartment variable $X$, 
 flow variable $x$ 
 and constant term in the denominator of $\eta$, 
 respectively. The formats of `beta` and `gamma` are $N*J$ list, and the default values are zero lists. The format of `alpha` is float or int, and the default value is 1.
-5) the eight and ninth inputs `lb` and `ub` are OPTIONAL, which are the lower and upper bounds of eta, i.e., $max(lb, \eta(X,x)) <=\eta <= min(ub, \eta(X,x))$; The default values are -1e+20 and 1e+20, respectively; Note that `lb` and `ub` are only used in the prediction model (simulation) but will be ingored in the optimization model.
+5) the eight and ninth inputs `lb` and `ub` are OPTIONAL, which are the lower and upper bounds of eta, i.e., $max(lb, \eta(X,x)) \leq \eta \leq min(ub, \eta(X,x))$; The default values are -1e+20 and 1e+20, respectively; Note that `lb` and `ub` are only used in the prediction model (simulation) but will be ingored in the optimization model.
 6) the last input `opt` is OPTIONAL. If `opt='delate'`, all transition probability from compartment $n$ to $m$ will be removed.
 ```
 for j in range(group):
@@ -145,7 +147,7 @@ There are nine inputs:
 4) the fourth input `dcoef` is a list of the coefficients of variables in `dvar`; It has the same length to `dvar`;
    The dafault value is a empty list.
 5) the fifth input `sense` is a string representing the symbol of constraint. `L` means $Ax <= b$; `E` means $Ax=b$,
-       while `G` implies '$Ax>=b$;
+       while `G` implies $Ax>=b$;
 6) the sixth input `rhs` is a float/int number representing the value of right-hand side
 7) the seventh input `name` is the name of constraint, if a constraint name is set repeatly, the coefficients of those variable equals to the values set in the last settings.
 8) the eight input `label` is OPTIONAL, if the model is the deterministic model or the constraint does not contain
@@ -192,10 +194,10 @@ Define the customized quadratic constraint by function `#.custom_qp`.
 There are twelve inputs:
 1) the formats of the first four inputs `fvarlp`, `fcoeflp`, `dvarlp` and `dcoeflp` are same to the inputs `fvar`,
        `fcoef`, `dvar`, `dcoef` defined in `#.custom_lp`;  
-2) the fifth and seventh inputs 'fvarqp' and 'dvarqp' are the lists with the same formats to 'fvarlp' and 'dvarlp',
-       respectively, which are the quadratic terms (i.e., variable^2);  
+2) the fifth and seventh inputs `fvarqp` and `dvarqp` are the lists with the same formats to `fvarlp` and `dvarlp`,
+       respectively, which are the quadratic terms (i.e., variable$^2$);  
 3) the sixth and eighth inputs `fcoefqp` and `dcoefqp` are the lists of the coefficients of the components in `fvarqp`
-       and 'dvarqp', respectively;  
+       and `dvarqp`, respectively;  
 4) the ninth, tenth and eleventh inputs `sense`, `rhs` and `name` are same to those defined in `#.custom_lp`;  
 5) the twelfth input `option` is OPTIONAL. If `opt='clear'`, then all customized quadratic constraints are removed.
 For simplification, we only show the quadratic constraints used in SEIHR model as below.
@@ -219,12 +221,12 @@ user.set_objectivetype(sense='min')
 ```
 Define the coefficient values of decision variables in the objective function by function `#.set_objective`.
 There are three inputs:
-1) the first input 'state' represents the name of variables. There are three types of 'state': 
+1) the first input `state` represents the name of variables. There are three types of `state`:   
     (a) a tuple with three components (compartment name, index of group and index of time), which can represent the compartment variable
-       (for example, state=('I',j, t)); 
+       (for example, state=('I',j, t));   
     (b) a tuple with four components (name of start compartment, name of end
        compartment, index of group and index of time), which can represent the flow variable (for example,
-       state=('I','Q', j, t)); 
+       state=('I','Q', j, t));   
     (c) a string representing the name of a customized variable;
 2) the second input `value` is the coefficient value of the variable corresponding to the input `state`;
 3) the twelfth input `option` is OPTIONAL. If `opt='clear'`, then all coefficients are removed.
@@ -249,12 +251,13 @@ Define the solution approach. There are three settings:
              the initial solution of flow variables. In default, the initial solution is automatically generated by
              'ME' approach. Also, we can use the function `#.set_initial_solution` with three inputs:
              `compartment1` and `compartment2` are the start and end compartments associated with a flow variable.
-             `val` is a $J*T$ list and each component is the value of group $j$ in time $t$. For example:
+             `val` is a $J*T$ list and each component is the value of group $j$ in time $t$.  
+             For example:
               user.set_initial_solution(compartment1='S', compartment2='SS', val=[[50 for t in range(period)] for j in range(group)])
 ```
 user.set_approximation(opt='SO')
 ```
-If users use the 'SO' approach to solve the model, the log stream can be recorded by the function `#.set_log_stream_SO`.
+If users use the `SO` approach to solve the model, the log stream can be recorded by the function `#.set_log_stream_SO`.
 There are two inputs:
 1) the first input `label` is set to 1 if users want to record the log, otherwise 0 (default).
 2) the second inout `file` is the path and name of the file (.txt)
@@ -273,8 +276,8 @@ There are three inputs:
 The output is a tuple with five components if there exists a feasible solution. Otherwise the output equals 0.
 1) the first component is the status of solving procedure to show either the solution is optimal or feasible;
 2) the optimal objective value;
-3) the list of compartment variables, which is a $N*J*T$ list;
-4) the list of flow variables, which is a $N*N*J*T$ list. Note that for the undefined flow variables, the value in the
+3) the list of compartment variables, which is a $N * J * T$ list;
+4) the list of flow variables, which is a $N * N * J * T$ list. Note that for the undefined flow variables, the value in the
        list is set to 0;
 5) the dictionary associated with customized variables. Each key in the dictionary is the name of a customized variable.
 ```
@@ -325,9 +328,10 @@ There are five inputs:
 4) the fourth input `ub` is the list of upper bounds of random transition probabilities between all pairs of start and end compartments;
 5) the fifth input is to define the sample size.
 The output is a $sample * N * N$ list.
-The following example is to generate 1000 samples corresponding to random transition probability from compartment $S$
-       to $E$ and from compartment $I$ to $D$. They following a $Uniform(1, 1.1)$ and Uniform $(0.9,1.1)$, respectively.
-'''
+The following example is to generate 1000 samples corresponding to random transition probability from compartment $S$ to $E$ and from compartment $I$ to $D$. They following
+       a Uniform$(1, 1.1)$ 
+       and Uniform$(0.9,1.1)$, respectively.
+```
 sample = 1000
 randomq = user.Sample_generation(n=['S','I'], m=['E','D'], lb=[1, 1], ub=[0.9, 1.1], size=sample)
 #Define the flow variables (user.x) in simulation (prediction)
@@ -337,6 +341,7 @@ x[2][4] = [[xopt[2][4][j][t] for t in range(period)] for j in range(group)]  # f
 x[4][5] = [[xopt[4][5][j][t] for t in range(period)] for j in range(group)]  # flow variable from Q to H
 user.x = x
 ```
+
 Simulation via function `#.Prediction`
 The input is a list, which is dependent on the prediction method (deterministic/stochastic/robust prediction for
        upper and lower bounds)
@@ -359,7 +364,7 @@ To generate the lower bound via the robust prediction, the input 'opt' equals
      value represents more conversative level of lower bound; coef is an OPTIONAL float/int number (default 1), which
      is the coefficient of the compartments.
 To generate the upper bound via the robust prediction, users only need to replace `RL` by `RU` in the input `opt`.
-The output is the simulated compartments, which is a $N*J*T$ list.
+The output is the simulated compartments, which is a $N * J * T$ list.
 ```
 Xsim_exp = [0 for s in range(sample)]
 for s in range(sample):
