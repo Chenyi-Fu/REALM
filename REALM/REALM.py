@@ -8,6 +8,8 @@ import time
 from math import log, exp, fabs
 from scipy import stats
 from numpy import array, std, var
+import multiprocessing as mp
+from pathos.multiprocessing import ProcessingPool as Pool
 # import Queue
 import numpy
 # import Datasetnew
@@ -24,6 +26,7 @@ def get_keys(d, value):
 
 class REALM():
     def __init__(self, name=None):
+        # self.pool = mp.Pool()
         self.__M = 10000
         self.__Mset = [i for i in range(10000)]
         self.compartment = 0
@@ -48,7 +51,7 @@ class REALM():
         self.model = None
         self.__approximation = 'ME'
         self.types = 'Expectation'
-        self.theta = 50000
+        self.theta = 50
         self.objtype = 0
 
         self.objective_type = 'min'
@@ -70,6 +73,10 @@ class REALM():
         self.__log_stream = 0
         self.__log_file = 'model_log_stream'
 
+    # def set_data(self, data):
+    #     for key, value in data.items():
+    #         if hasattr(self, key) and key != 'solver':
+    #             setattr(self, key, value)
     '''=============== Step 1. Define model and model size ====================='''
     def set_solver(self, solver='cplex'):
         if solver == 'cplex':
@@ -317,8 +324,10 @@ class REALM():
                         self.set_transition_compartment_beta(flow=(m, m, j, t),
                                                              beta=beta3, gamma=gamma3, phi=phi3, psi=psi3,
                                                              alpha=alpha3, opt=None)
+                        # print(self.compartment_info[m]['tocpm'][m])
                     else:
                         self.set_transition_compartment(n=m, m=m, prob=prob, opt=None)
+                        # print(n, self.compartment_info[n]['fromcpm'].keys())
 
     def set_transition_compartment_norm(self, flow = None, betabar= None, gammabar= None, phibar= None, psibar= None,
                                         alphabar=None, opt = None):
@@ -328,6 +337,7 @@ class REALM():
             (n, m, j, t) = flow
             temp = self.compartment_name.keys()
             if n in temp and m in temp:
+                # print(self.compartment_info[n]['tocpm'][m]['q_norm'])
                 if opt == None:
                     if (j,t) in self.compartment_info[n]['tocpm'][m]['q_norm'].keys():
                         self.compartment_info[n]['tocpm'][m]['q_norm'][(j,t)] \
@@ -535,6 +545,12 @@ class REALM():
             raise ValueError('Domain of compartment is incorrect or compartment is not defined')
 
     def __set_dvar_bound(self):
+        # print(self.compartment_info[14]['tocpm'][21]['xupper'])
+        # for n in range(max(self.compartment_name.keys()) + 1):
+        #     for m in self.compartment_info[n]['tocpm'].keys():
+        #         print(self.compartment_info[n]['local']['name'], self.compartment_info[m]['local']['name'],
+        #               self.compartment_info[n]['tocpm'][m]['xupper'])
+
         xupper = [[[[min(100000, self.compartment_info[n]['tocpm'][m]['xupper'][j][t])
                      if m in self.compartment_info[n]['tocpm'].keys()
                         and (j, t) in self.compartment_info[n]['tocpm'][m]['x']
@@ -547,19 +563,20 @@ class REALM():
                      else 0 for t in range(self.Time)] for j in range(self.group)]
                    for m in range(max(self.compartment_name.keys()) + 1)] for n in
                   range(max(self.compartment_name.keys()) + 1)]
-        for i in self.constraint.keys():
-            dvar = self.constraint[i][0]  # var
-            dcoef = self.constraint[i][1]  # coef
-            sense = self.constraint[i][2]
-            rhs = self.constraint[i][3]
-            label = [dvar[i][0] for i in range(len(dvar))]
-            for j in range(len(label)):
-                if label[j] == 'x':
-                    temp = dvar[j].split('.')[1:]
-                    temp = [int(temp[ii]) for ii in range(len(temp))]
-                    if ((sense in ['L', 'E'] and dcoef[j] > 0) or (sense in ['G', 'E'] and dcoef[j] < 0)) and \
-                                            0 < rhs / dcoef[j] < xupper[temp[0]][temp[1]][temp[2]][temp[3]]:
-                        xupper[temp[0]][temp[1]][temp[2]][temp[3]] = rhs / dcoef[j]
+        # print(self.constraint)
+        # for i in self.constraint.keys():
+        #     dvar = self.constraint[i][0]  # var
+        #     dcoef = self.constraint[i][1]  # coef
+        #     sense = self.constraint[i][2]
+        #     rhs = self.constraint[i][3]
+        #     label = [dvar[i][0] for i in range(len(dvar))]
+        #     for j in range(len(label)):
+        #         if label[j] == 'x':
+        #             temp = dvar[j].split('.')[1:]
+        #             temp = [int(temp[ii]) for ii in range(len(temp))]
+        #             if ((sense in ['L'] and dcoef[j] > 0) or (sense in ['G'] and dcoef[j] < 0)) and \
+        #                                     0 < rhs / dcoef[j] < xupper[temp[0]][temp[1]][temp[2]][temp[3]]:
+        #                 xupper[temp[0]][temp[1]][temp[2]][temp[3]] = rhs / dcoef[j]
 
         xupper = [[[[0 if xupper[n][m][j][t] == 100000 else xupper[n][m][j][t] for t in range(self.Time)]
                     for j in range(self.group)] for m in range(max(self.compartment_name.keys()) + 1)]
@@ -697,12 +714,18 @@ class REALM():
                                                 for n in temp for k in range(self.group)
                                                 for j in range(self.group) for t in range(self.Time)])
 
-            self.model.variables.add(obj=[0 for i in self.custom_var.keys()],
-                                     lb=[self.custom_var[i][0] for i in self.custom_var.keys()],
-                                     ub=[self.custom_var[i][1] for i in self.custom_var.keys()],
-                                     types = [self.custom_var[i][2] for i in self.custom_var.keys()],
-                                     names=[i for i in self.custom_var.keys()])
-
+            for i in self.custom_var.keys():
+                if self.custom_var[i][2] == 'C':
+                    self.model.variables.add(obj=[0],
+                                     lb=[self.custom_var[i][0]],
+                                     ub=[self.custom_var[i][1]],
+                                     names=[i])
+                else:
+                    self.model.variables.add(obj=[0],
+                                             lb=[self.custom_var[i][0]],
+                                             ub=[self.custom_var[i][1]],
+                                             types=[self.custom_var[i][2]],
+                                             names=[i])
             if self.types == 'Robustness':
                 temp = self.compartment_name.keys()
                 self.model.variables.add(obj=[0 for n in temp for j in range(self.group) for t in range(self.Time)],
@@ -777,17 +800,17 @@ class REALM():
                                 name="U." + str(n) + "." + str(m) + "." + str(j) + "." + str(t))
 
             for n in temp:
+                # print('w',n,len(temp))
                 for j in range(self.group):
                     for t in range(self.Time):
-                        self.model.addVar(
-                            lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS,
-                            name="W." + str(n) + "." + str(j) + "." + str(t))
                         if self.__approximation == 'ME':
-                            self.model.update()
-                            self.model.setAttr("lb", self.model.getVarByName("W." + str(n) + "." + str(j) + "." + str(t)),
-                                               self.Wlower[n][j][t])
-                            self.model.setAttr("ub", self.model.getVarByName("W." + str(n) + "." + str(j) + "." + str(t)),
-                                               self.Wupper[n][j][t])
+                            self.model.addVar(
+                                lb=self.Wlower[n][j][t], ub=self.Wupper[n][j][t], vtype=GRB.CONTINUOUS,
+                                name="W." + str(n) + "." + str(j) + "." + str(t))
+                        else:
+                            self.model.addVar(
+                                lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS,
+                                name="W." + str(n) + "." + str(j) + "." + str(t))
             for n in temp:
                 for m in self.compartment_info[n]['tocpm'].keys():
                     for (j, t) in self.compartment_info[n]['tocpm'][m]['x']:
@@ -796,8 +819,9 @@ class REALM():
                             ub=self.compartment_info[n]['tocpm'][m]['xupper'][j][t],
                             vtype=GRB.CONTINUOUS,
                             name="x." + str(n) + "." + str(m) + "." + str(j) + "." + str(t))
-            for n in temp:
-                if self.__approximation == 'SF':
+
+            if self.__approximation == 'SF':
+                for n in temp:
                     for k in range(self.group):
                         for j in range(self.group):
                             for t in range(self.Time):
@@ -809,7 +833,8 @@ class REALM():
                                     name="Vhat." + str(n) + "." + str(k) + "." + str(j) + "." + str(t))
 
             for i in self.custom_var.keys():
-                self.model.addVar( lb=self.custom_var[i][0], ub=self.custom_var[i][1], vtype=self.custom_var[i][2], name=i)
+                self.model.addVar(lb=self.custom_var[i][0], ub=self.custom_var[i][1],
+                                  vtype=self.custom_var[i][2], name=i)
 
             if self.types == 'Robustness':
                 temp = self.compartment_name.keys()
@@ -833,15 +858,15 @@ class REALM():
                 for n in temp:
                     for j in range(self.group):
                         for t in range(self.Time):
-                            self.model.addVar(
-                                lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS,
-                                name="What." + str(n) + "." + str(j) + "." + str(t))
-                            if self.__approximation == 'ME':
-                                self.model.update()
-                                self.model.setAttr("lb", self.model.getVarByName("What." + str(n) + "." + str(j) + "." + str(t)),
-                                                   self.whatlower[n][j][t])
-                                self.model.setAttr("ub", [self.model.getVarByName("What." + str(n) + "." + str(j) + "." + str(t))],
-                                                   self.whatupper[n][j][t])
+                            if self.__approximation != 'ME':
+                                self.model.addVar(
+                                    lb=-GRB.INFINITY, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS,
+                                    name="What." + str(n) + "." + str(j) + "." + str(t))
+                            else:
+                                self.model.addVar(
+                                    lb=self.whatlower[n][j][t],
+                                    ub=self.whatupper[n][j][t], vtype=GRB.CONTINUOUS,
+                                    name="What." + str(n) + "." + str(j) + "." + str(t))
 
                 if self.__approximation == 'ME':
                     for n in temp:
@@ -1299,7 +1324,7 @@ class REALM():
                                                              + self.model.getVarByName("phi." + str(m) + "." + str(n)
                                                                 + "." + str(j) + "." + str(t)) * self.whatlower[m][j][t]
                                                              >= self.eta1upper[m][n][j][t]**2 * self.whatlower[m][j][t],
-                                                             "RdynamicsUlower." + str(m) + "." + str(n) + "." + str(j)
+                                                             "RdynamicsUupper." + str(m) + "." + str(n) + "." + str(j)
                                                              + "." + str(t) + "." + str(0))
                                         self.model.addConstr(-self.model.getVarByName("Uhat." + str(m) + "." + str(n) + "." + str(j) + "." + str(t))
                                                              + self.model.getVarByName("What." + str(m) + "." + str(j) + "." + str(t))
@@ -1386,6 +1411,7 @@ class REALM():
 
             for n in self.compartment_name.keys():
                 for m in self.compartment_info[n]['fromcpm'].keys():
+                    # print(n, m, self.compartment_info[n]['fromcpm'][m]['q_dp'].keys())
                     for j in range(self.group):
                         for t in range(self.Time-1):
                             if (j,t) in self.compartment_info[n]['fromcpm'][m]['q_dp'].keys():
@@ -1531,6 +1557,7 @@ class REALM():
 
             for n in self.compartment_name.keys():
                 for m in self.compartment_info[n]['fromcpm'].keys():
+                    # print(n, m, self.compartment_info[n]['fromcpm'][m]['q_dp'].keys())
                     for j in range(self.group):
                         for t in range(self.Time-1):
                             if (j,t) in self.compartment_info[n]['fromcpm'][m]['q_dp'].keys():
@@ -2040,6 +2067,7 @@ class REALM():
                                         "System_stepfunction_lower_q." + str(m) + "." + str(n) + "." + str(j) \
                                         + "." + str(t) + "." + str(l))
 
+
                 for mm in self.compartment_name.keys():
                     for k in range(self.group):
                         for j in range(self.group):
@@ -2132,7 +2160,6 @@ class REALM():
         Xlower = [[[self.compartment_info[n]['local']['population'][j] if t == 0 else 0 for t in range(self.Time)]
                    for j in range(self.group)] for n in range(max(self.compartment_name.keys())+1)]
         xupper, xlower = self.__set_dvar_bound()
-
         scale = 1
         gamma1 = [[[[self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][1]
                    if n in self.compartment_info[m]['tocpm'].keys()
@@ -2306,33 +2333,38 @@ class REALM():
         self.Wlower = [[[max(0,Xlower[n][j][t] - sum([xupper[n][m][j][t] for m in self.compartment_name.keys()]))
                     for t in range(self.Time)] for j in range(self.group)] for n in self.compartment_name.keys()]
 
-        self.eta1upper = [[[[sum([Xupper[mm][k][t] / scale * gamma1[m][n][j][t][mm][k]
+        self.eta1upper = [[[[max(min(sum([Xupper[mm][k][t] / scale * gamma1[m][n][j][t][mm][k]
                            for mm in self.compartment_name.keys() for k in range(self.group)]) \
                       + sum([xlower[mm][nn][k][t] / scale * psi1[m][n][j][t][mm][k]
                              for mm in self.compartment_name.keys()
                              for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
-                             if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']]) + alpha1[m][n][j][t]
+                             if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']]) + alpha1[m][n][j][t],1),0)
                       if n in self.compartment_info[m]['tocpm'].keys()
                          and self.compartment_info[m]['tocpm'][n]['q_dp'] != {} and n!=m else 0
                       for t in range(self.Time)] for j in range(self.group)]
                       for n in self.compartment_name.keys()] for m in self.compartment_name.keys()]
-        self.eta1lower = [[[[sum([Xlower[mm][k][t] / scale * gamma1[m][n][j][t][mm][k]
+        self.eta1lower = [[[[max(min(sum([Xlower[mm][k][t] / scale * gamma1[m][n][j][t][mm][k]
                            for mm in self.compartment_name.keys() for k in range(self.group)]) \
                       + sum([xupper[mm][nn][k][t] / scale * psi1[m][n][j][t][mm][k]
                              for mm in self.compartment_name.keys()
                              for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
-                             if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']]) + alpha1[m][n][j][t]
+                             if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']]) + alpha1[m][n][j][t],1),0)
                       if n in self.compartment_info[m]['tocpm'].keys()
                          and self.compartment_info[m]['tocpm'][n]['q_dp'] != {} and n!=m else 0
                       for t in range(self.Time)] for j in range(self.group)]
                       for n in self.compartment_name.keys()] for m in self.compartment_name.keys()]
 
         for n in self.compartment_name.keys():
-            self.eta1upper[n][n] = [[1 - sum([self.eta1lower[n][m][j][t] for m in self.compartment_name.keys() if n != m])
+            self.eta1upper[n][n] = [[max(min(1 - sum([self.eta1lower[n][m][j][t]
+                                                      for m in self.compartment_name.keys() if n != m]),1),0)
                                      for t in range(self.Time)] for j in range(self.group)]
-            self.eta1lower[n][n] = [[1 - sum([self.eta1upper[n][m][j][t] for m in self.compartment_name.keys() if n != m])
+            self.eta1lower[n][n] = [[max(min(1 - sum([self.eta1upper[n][m][j][t]
+                                                      for m in self.compartment_name.keys() if n != m]),1),0)
                                      for t in range(self.Time)] for j in range(self.group)]
-
+            # print(n)
+            # print(all([self.Wupper[n][j][t] >= self.Wlower[n][j][t] for j in range(self.group) for t in range(self.Time)]))
+            # print(all([self.eta1upper[n][m][j][t] >= self.eta1lower[n][m][j][t]
+            #            for m in self.compartment_name.keys() for j in range(self.group) for t in range(self.Time)]))
         if self.types == 'Robustness':
             self.whatupper = [[[Xdupper[m][j][t] - max(Xlower[m][j][t] - sum([xupper[m][mm][j][t]
                                 for mm in self.compartment_name.keys()]), 0) for t in range(self.Time)]
@@ -2341,7 +2373,25 @@ class REALM():
             self.whatlower = [[[Xdlower[m][j][t] - max(Xupper[m][j][t] - sum([xlower[m][mm][j][t]
                                 for mm in self.compartment_name.keys()]), 0) for t in range(self.Time)]
                                for j in range(self.group)] for m in self.compartment_name.keys()]
-
+        # if self.types == 'Robustness':
+        #     for m in self.compartment_name.keys():
+        #         for j in range(self.group):
+        #             for t in range(self.Time):
+        #                 print(m,j,t, self.whatupper[m][j][t], Xdupper[m][j][t], Xlower[m][j][t], sum([xupper[m][mm][j][t]
+        #                         for mm in self.compartment_name.keys()]))
+        #                 print(m,j,t, self.whatlower[m][j][t], Xdlower[m][j][t], Xupper[m][j][t], sum([xlower[m][mm][j][t]
+        #                         for mm in self.compartment_name.keys()]))
+        #                 print()
+        # else:
+        #     for m in self.compartment_name.keys():
+        #         for j in range(self.group):
+        #             for t in range(self.Time):
+        #                 print(m,j,t, Xlower[m][j][t], sum([xupper[m][mm][j][t]
+        #                         for mm in self.compartment_name.keys()]))
+        #                 print(m,j,t, Xupper[m][j][t], sum([xlower[m][mm][j][t]
+        #                         for mm in self.compartment_name.keys()]))
+        #                 print()
+        # print()
     def __McCormickEnvelopesfunction(self):
         if self.solver == 'cplex':
             for m in self.compartment_name.keys():
@@ -2446,6 +2496,7 @@ class REALM():
                     coef2.append(fcoef[i])
             if len(dvar) == len(dcoef) != [] and \
                     all([isinstance(dvar[i], str) and dvar[i] in self.custom_var.keys() for i in range(len(dvar))]):
+                # for i in range(len(dvar)):
                 var3.extend(dvar)
                 coef3.extend(dcoef)
 
@@ -2540,6 +2591,133 @@ class REALM():
         m = get_keys(self.compartment_name, compartment2)[0]
         self.__initialsol.update({(n,m): val})
 
+    def __model2(self, Xopt=None, xopt=None, eta=None, target=None):
+        if self.solver == 'cplex':
+            model = cplex.Cplex()
+            temp = self.compartment_name.keys()
+            model.variables.add(obj=[0 for n in temp for j in range(self.group) for t in range(self.Time)],
+                                     lb=[0 if t > 0 else self.compartment_info[n]['local']['population'][j]
+                                         for n in temp for j in range(self.group) for t in range(self.Time)],
+                                     ub=[cplex.infinity if t > 0 else
+                                         self.compartment_info[n]['local']['population'][j]
+                                         for n in temp for j in range(self.group) for t in range(self.Time)],
+                                     names=["X." + str(n) + "." + str(j) + "." + str(t) for n in temp
+                                            for j in range(self.group) for t in range(self.Time)])
+            model.variables.add(obj=[0 for n in temp for m in self.compartment_info[n]['tocpm'].keys()
+                                          for (j, t) in self.compartment_info[n]['tocpm'][m]['x']],
+                                     lb=[self.compartment_info[n]['tocpm'][m]['xlower'][j][t]
+                                         for n in temp for m in self.compartment_info[n]['tocpm'].keys()
+                                         for (j, t) in self.compartment_info[n]['tocpm'][m]['x']],
+                                     ub=[self.compartment_info[n]['tocpm'][m]['xupper'][j][t]
+                                         for n in temp for m in self.compartment_info[n]['tocpm'].keys()
+                                         for (j, t) in self.compartment_info[n]['tocpm'][m]['x']],
+                                     names=["x." + str(n) + "." + str(m) + "." + str(j) + "." + str(t)
+                                            for n in temp for m in self.compartment_info[n]['tocpm'].keys()
+                                            for (j, t) in self.compartment_info[n]['tocpm'][m]['x']])
+            for i in self.custom_var.keys():
+                if self.custom_var[i][2] == 'C':
+                    model.variables.add(obj=[0],
+                                     lb=[self.custom_var[i][0]],
+                                     ub=[self.custom_var[i][1]],
+                                     names=[i])
+                else:
+                    model.variables.add(obj=[0],
+                                        lb=[self.custom_var[i][0]],
+                                        ub=[self.custom_var[i][1]],
+                                        types=[self.custom_var[i][2]],
+                                        names=[i])
+            if self.types == 'Robustness':
+                temp = self.compartment_name.keys()
+                model.variables.add(obj=[0 for n in temp for j in range(self.group) for t in range(self.Time)],
+                                         lb=[0 for n in temp for j in range(self.group) for t in range(self.Time)],
+                                         ub=[cplex.infinity if t > 0 else 0
+                                             for n in temp for j in range(self.group) for t in range(self.Time)],
+                                         names=["Xdagger." + str(n) + "." + str(j) + "." + str(t) for n in temp
+                                                for j in range(self.group) for t in range(self.Time)])
+        elif self.solver == 'gurobi':
+            model = gp.Model()
+            temp = self.compartment_name.keys()
+            for n in temp:
+                for j in range(self.group):
+                    for t in range(self.Time):
+                        model.addVar(lb=Xopt[n][j][t],
+                                     ub=Xopt[n][j][t],
+                                     vtype=GRB.CONTINUOUS,
+                                     name="X." + str(n) + "." + str(j) + "." + str(t))
+            for n in temp:
+                for m in self.compartment_info[n]['tocpm'].keys():
+                    for (j, t) in self.compartment_info[n]['tocpm'][m]['x']:
+                        model.addVar(
+                            lb=xopt[n][m][j][t],
+                            ub=xopt[n][m][j][t],
+                            vtype=GRB.CONTINUOUS,
+                            name="x." + str(n) + "." + str(m) + "." + str(j) + "." + str(t))
+
+            for i in self.custom_var.keys():
+                model.addVar(lb=self.custom_var[i][0], ub=self.custom_var[i][1],
+                             vtype=self.custom_var[i][2], name=i)
+
+            if self.types == 'Robustness':
+                temp = self.compartment_name.keys()
+                for n in temp:
+                    for j in range(self.group):
+                        for t in range(self.Time):
+                            if t > 0:
+                                model.addVar(lb=0, ub=GRB.INFINITY, vtype=GRB.CONTINUOUS,
+                                             name="Xdagger." + str(n) + "." + str(j) + "." + str(t))
+                            else:
+                                model.addVar(lb=0, ub=0, vtype=GRB.CONTINUOUS,
+                                             name="Xdagger." + str(n) + "." + str(j) + "." + str(t))
+        self.set_objectivetype(model=model, sense=self.objective_type)
+        for i in self.objectiveterm:
+            self.set_objective(model=model, state=i[0], value=i[2])
+        self.constraintgeneration(model=model)
+
+        if self.solver == 'cplex' and self.types == 'Robustness':
+            for n in self.compartment_name.keys():
+                for k in range(self.group):
+                    for t in range(self.Time - 1):
+                        model.linear_constraints.add(
+                            lin_expr=[cplex.SparsePair(["Xdagger." + str(n) + "." + str(k) + "." + str(t + 1)]
+                                                       + ["Xdagger." + str(m) + "." + str(k) + "." + str(t)
+                                                          for m in self.compartment_info[n]['fromcpm'].keys()]
+                                                       + ["X." + str(m) + "." + str(k) + "." + str(t)
+                                                          for m in self.compartment_info[n]['fromcpm'].keys()]
+                                                       + ["x." + str(m) + "." + str(mm) + "." + str(k) + "." + str(t)
+                                                          for mm in self.compartment_info[m]['tocpm'].keys()
+                                                          if (k, t) in self.compartment_info[m]['tocpm'][mm]['x']],
+                                                       [-1]
+                                                       + [eta[m][n][k][t] ** 2 for m in
+                                                          self.compartment_info[n]['fromcpm'].keys()]
+                                                       + [eta[m][n][k][t] * (1 - eta[m][n][k][t])
+                                                          for m in self.compartment_info[n]['fromcpm'].keys()]
+                                                       + [-eta[m][n][k][t] * (1 - eta[m][n][k][t])
+                                                          for mm in self.compartment_info[m]['tocpm'].keys()
+                                                          if (k, t) in self.compartment_info[m]['tocpm'][mm]['x']]
+                                                       )],
+                            senses=["E"],
+                            rhs=[0],
+                            names=["dynamicsequal." + str(n) + "." + str(k) + "." + str(t)])
+        elif self.solver == 'gurobi' and self.types == 'Robustness':
+            for n in self.compartment_name.keys():
+                for k in range(self.group):
+                    for t in range(self.Time - 1):
+                        model.addConstr(
+                            - model.getVarByName("Xdagger." + str(n) + "." + str(k) + "." + str(t + 1))
+                            + gp.quicksum(model.getVarByName("Xdagger." + str(m) + "." + str(k) + "." + str(t)) *
+                                          eta[m][n][k][t] ** 2
+                                          + model.getVarByName("X." + str(m) + "." + str(k) + "." + str(t)) *
+                                          eta[m][n][k][t] * (1 - eta[m][n][k][t])
+                                          for m in self.compartment_info[n]['fromcpm'].keys())
+                            - gp.quicksum(
+                                model.getVarByName("x." + str(m) + "." + str(mm) + "." + str(k) + "." + str(t))
+                                for mm in self.compartment_info[m]['tocpm'].keys()
+                                if (k, t) in self.compartment_info[m]['tocpm'][mm]['x'])
+                            * eta[m][n][k][t] * (1 - eta[m][n][k][t])
+                            == 0, "Rdynamicsequal." + str(n) + "." + str(k) + "." + str(t))
+        sol = self.solvemodel(model=model, ct=None, target=target)
+        return sol
+
     def solve(self, label='Expectation', ct=None, target=None):
         self.set_transition_compartment_self()
         self.Lq = None
@@ -2557,6 +2735,7 @@ class REALM():
         for i in self.compartment_name:
             self.set_transition_group(compartment=i, prob=[[[1 if k==j else 0 for t in range(self.Time)]
                                                             for k in range(self.group)] for j in range(self.group)])
+
         if label == 'Expectation':
             self.types = 'Expectation'
             if self.__approximation in ['SF','ME']:
@@ -2564,9 +2743,9 @@ class REALM():
                     self.__set_bound_McCormickEnvelopes()
                     # self.__McCormickEnvelopesfunction()
                 self.dvar_conpartment()
-                self.set_objectivetype(sense=self.objective_type)
+                self.set_objectivetype(model=self.model, sense=self.objective_type)
                 for i in self.objectiveterm:
-                    self.set_objective(state=i[0], value=i[2])
+                    self.set_objective(model=self.model, state=i[0], value=i[2])
                 for i in self.con_var_para:
                     self.defineLinearConstraints(var=i[0], coef=i[1], sense=i[2], rhs=i[3], name=i[4],
                                                  types='Expectation')
@@ -2580,14 +2759,15 @@ class REALM():
                 elif self.__approximation == 'ME':
                     self.__McCormickEnvelopesfunction()
                 self.__Dynamics()
-                self.constraintgeneration()
-                self.model.write('model_expectation_ME.mps')
-                self.model.write('model_expectation_ME.lp')
-                solution = self.solvemodel(ct=ct)
+                self.constraintgeneration(model=self.model)
+                # self.model.write('model_expectation_ME.mps')
+                # self.model.write('model_expectation_ME.lp')
+                solution = self.solvemodel(model=self.model, ct=ct)
                 if isinstance(solution, (int, float)):
                     self.status = solution
                     return self.status
                 else:
+                    self.status = solution[0]
                     return solution
             elif self.__approximation == 'SO':
                 if self.__log_stream == 1:
@@ -2621,25 +2801,20 @@ class REALM():
                     self.model.remove(self.model.getConstrs())
                     self.model.remove(self.model.getQConstrs())
                     self.model.remove(self.model.getVars())
-
-                self.model.write('123.mps')
-                self.model.write('123.lp')
                 iter = 0
+                self.x = xopt
+                XoptD, xopt, eta = self.DeterPrediction()
                 while 1:
                     iter += 1
                     print('|-- Iteration ' + str(iter))
                     if self.__log_stream == 1:
                         outcome.write('|-- Iteration ' + str(iter)+'\n')
-                    # step 1. simulation and generate value of compartment and probability eta
-                    self.x = xopt
-                    Xopt, xopt, eta = self.DeterPrediction()
-
                     # step 2 generate or update the model
                     if label1 == 0:
                         self.dvar_conpartment()
-                        self.set_objectivetype(sense=self.objective_type)
+                        self.set_objectivetype(model=self.model, sense=self.objective_type)
                         for i in self.objectiveterm:
-                            self.set_objective(state=i[0], value=i[2])
+                            self.set_objective(model=self.model, state=i[0], value=i[2])
                         if label2 == 1:
                             for i in self.con_var_para:
                                 self.defineLinearConstraints( var=i[0], coef=i[1], sense=i[2], rhs=i[3],
@@ -2649,13 +2824,24 @@ class REALM():
                                                                 sense=i[4], rhs=i[5], name=i[6])
                     self.__DynamicsLinear(eta=eta,label=label1)
                     if label1 == 0:
-                        self.constraintgeneration()
-                    self.model.write('model_expectation_SO_' + str(iter) + '.mps')
-                    self.model.write('model_expectation_SO_' + str(iter) + '.lp')
+                        self.constraintgeneration(model=self.model)
+                    # self.model.write('model_expectation_SO_' + str(iter) + '.mps')
+                    # self.model.write('model_expectation_SO_' + str(iter) + '.lp')
                     label1 = 1
 
                     # step 5. solve model
-                    solution = self.solvemodel(ct=ct)
+                    solution = self.solvemodel(model=self.model, ct=ct)
+                    if solution != 0:
+                        # step 1. simulation and generate value of compartment and probability eta
+                        print('Solution is revised')
+                        self.x = xopt
+                        XoptD, xopt, eta = self.DeterPrediction()
+                        solution1 = self.__model2(Xopt=XoptD, xopt=xopt, eta=eta)
+                        if solution1 != 0:
+                            print('revised model has solutions')
+                            solution = solution1
+                        else:
+                            print('revised model is infeasible')
                     if isinstance(solution, (int, float)) and len(bestobj) == 1:
                         print('Initial solution is infeasible for the optimization model...')
                         print('|-----------------------------------')
@@ -2710,7 +2896,10 @@ class REALM():
                         return bestsol
                     else:
                         (self.status, obj, Xopt, xopt, Xc) = solution
-                        if obj < bestobj[-1]:
+                        if fabs(obj - bestobj[-1]) / (bestobj[-1]+0.0001) > 0.001 \
+                                or max([fabs(Xopt[n][j][t] - XoptD[n][j][t])/ (XoptD[n][j][t]+0.001)
+                                         for n in self.compartment_name.keys()
+                                         for j in range(self.group) for t in range(self.Time)]) > 0.01:
                             bestobj.append(obj)
                             bestsol = solution
                             print('|-- Objective values at all iterations:', bestobj)
@@ -2733,7 +2922,13 @@ class REALM():
                                             if self.__log_stream == 1:
                                                 outcome.write('|-------- ')
                                                 outcome.write(str(xopt[n][m][j])+'\n')
+                            for n in Xc.keys():
+                                print(n)
+                                print('Customized variable ' + str(n) + ' = ', Xc[n])
+                                if self.__log_stream == 1:
+                                    outcome.write('Customized variable ' + str(n) + ' = ' + str(Xc[n]) + '\n')
                             print('|-----------------------------------')
+
                         else:
                             bestobj.append(obj)
                             print('|-- Convergence')
@@ -2758,6 +2953,11 @@ class REALM():
                                             if self.__log_stream == 1:
                                                 outcome.write('|-------- ')
                                                 outcome.write(str(bestsol[3][n][m][j]) + '\n')
+
+                            for n in bestsol[4].keys():
+                                print('Customized variable ' + str(n) + ' = ', bestsol[4][n])
+                                if self.__log_stream == 1:
+                                    outcome.write('Customized variable ' + str(n) + ' = ' + str(bestsol[4][n]) + '\n')
                             print('|-----------------------------------')
                             if self.__log_stream == 1:
                                 outcome.write('|-----------------------------------\n')
@@ -2775,9 +2975,9 @@ class REALM():
                 if self.__approximation == 'ME':
                     self.__set_bound_McCormickEnvelopes()
                 self.dvar_conpartment()
-                self.set_objectivetype(sense=self.objective_type)
+                self.set_objectivetype(model=self.model, sense=self.objective_type)
                 for i in self.objectiveterm:
-                    self.set_objective(state=i[0], value=i[2])
+                    self.set_objective(model=self.model, state=i[0], value=i[2])
                 for i in self.con_var_para:
                     self.defineLinearConstraints(var=i[0], coef=i[1], sense=i[2], rhs=i[3], name=i[4], types=i[5])
                 for i in self.con_var_para_qp:
@@ -2790,14 +2990,9 @@ class REALM():
                 elif self.__approximation == 'ME':
                     self.__McCormickEnvelopesfunction()
                 self.__Dynamics()
-                self.constraintgeneration()
+                self.constraintgeneration(model=self.model)
 
-                self.model.write('modelrobust_ME_('+str(target)+').lp')
-                if self.solver == 'cplex':
-                    self.model.write('modelrobust_ME_(' + str(target) + 'cplex).mps')
-                elif self.solver == 'gurobi':
-                    self.model.write('modelrobust_ME_(' + str(target) + 'gurobi).mps')
-                solution = self.solvemodel(ct=ct,target=target)
+                solution = self.solvemodel(model=self.model, ct=ct, target=target)
                 if isinstance(solution, (int, float)):
                     self.status = solution
                     return self.status
@@ -2824,29 +3019,27 @@ class REALM():
                         xopt[i[0]][i[1]] = self.__initialsol[i]
                     label2 = 1
 
-                besttheta = [[1e15]]
+                besttheta = [[1e15 for name in self.robustconstraint.keys()]+[1e15]]
                 label1 = 0
                 if self.solver == 'cplex':
                     self.model.linear_constraints.delete()
                     self.model.quadratic_constraints.delete()
                     self.model.variables.delete()
-                elif self.solver =='gurobi':
+                elif self.solver == 'gurobi':
                     self.model.remove(self.model.getConstrs())
                     self.model.remove(self.model.getQConstrs())
                     self.model.remove(self.model.getVars())
                 pp = 0
+                self.x = xopt
+                XoptD, xoptD, eta = self.DeterPrediction()
                 while 1:
                     pp += 1
-                    # step 1. simulation and generate value of compartment and probability eta
-                    self.x = xopt
-                    Xopt, xopt, eta = self.DeterPrediction()
-
                     # step 2 generate or update the model
                     if label1 == 0:
                         self.dvar_conpartment()
-                        self.set_objectivetype(sense=self.objective_type)
+                        self.set_objectivetype(model=self.model, sense=self.objective_type)
                         for i in self.objectiveterm:
-                            self.set_objective(state=i[0], value=i[2])
+                            self.set_objective(model=self.model, state=i[0], value=i[2])
                         if label2 == 1:
                             for i in self.con_var_para:
                                 self.defineLinearConstraints(var=i[0], coef=i[1], sense=i[2], rhs=i[3],
@@ -2856,14 +3049,26 @@ class REALM():
                                                                 sense=i[4], rhs=i[5], name=i[6])
                     self.__DynamicsLinear(eta=eta,label=label1)
                     if label1 == 0:
-                        self.constraintgeneration()
-                    self.model.write('model_robustness_SO_' + str(pp) + '.lp')
-                    self.model.write('model_robustness_SO_' + str(pp) + '.mps')
+                        self.constraintgeneration(model=self.model)
+                    # self.model.write('model_robustness_SO_' + str(pp) + '.lp')
+                    # self.model.write('model_robustness_SO_' + str(pp) + '.mps')
                     label1 = 1
-                    solution = self.solvemodel(ct=ct, target=target)
+                    solution = self.solvemodel(model=self.model, ct=ct,target=target)
                     theta = [self.robustconstraint[name][2] for name in self.robustconstraint.keys()]
                     theta.sort(reverse=True)
-
+                    print(theta, besttheta,self.robustconstraint)
+                    if solution != 0:
+                        # step 1. simulation and generate value of compartment and probability eta
+                        print('Solution is revised')
+                        self.x = xopt
+                        XoptD, xoptD, eta = self.DeterPrediction()
+                        solution1 = self.__model2(Xopt=XoptD, xopt=xoptD, eta=eta, target=target)
+                        if solution1 != 0:
+                            print('revised model is feasible',xoptD[14][21])
+                            solution = solution1
+                        else:
+                            print('revised model is infeasible',xoptD[14][21])
+                            xoptD = xopt
                     # step 4. stop condition
                     if isinstance(solution, (int, float)) and len(besttheta) == 1:
                         print('|-- Initial solution is infeasible for the optimization model...')
@@ -2899,9 +3104,11 @@ class REALM():
                             if self.__log_stream == 1:
                                 self.outcome.write('|---- '+str(jj)+'\n')
                         print('|-- Current theta (Iteration ' + str(pp) + ' ):', theta)
+                        print('|-- Current objective (Iteration ' + str(pp) + ' ):', bestsol[1])
                         print('|-- Best x =')
                         if self.__log_stream == 1:
                             self.outcome.write('|-- Current theta (Iteration ' + str(pp) + ' ): '+str(theta)+'\n')
+                            self.outcome.write('|-- Current objective (Iteration ' + str(pp) + ' ): ' + str(bestsol[1]) + '\n')
                             self.outcome.write('|-- Best x =\n')
                         for n in self.compartment_name.keys():
                             for m in self.compartment_info[n]['tocpm'].keys():
@@ -2925,7 +3132,12 @@ class REALM():
                         return bestsol
                     else:
                         (self.status, obj, Xopt, xopt, Xc) = solution
-                        if theta < besttheta[-1]:
+                        print(theta, besttheta)
+                        if all(fabs(theta[jj] - besttheta[-1][jj])/besttheta[-1][jj] for jj in range(len(theta))) > 0.001\
+                                or max([fabs(xopt[n][m][j][t] - xoptD[n][m][j][t])/ (xoptD[n][m][j][t]+0.001)
+                                        for n in self.compartment_name.keys()
+                                        for m in self.compartment_info[n]['tocpm'].keys()
+                                        for j in range(self.group) for t in range(self.Time)]) > 0.01:
                             besttheta.append(theta)
                             bestsol = solution
                             print('|-- Objective theta at all iterations:')
@@ -2936,9 +3148,11 @@ class REALM():
                                 if self.__log_stream == 1:
                                     self.outcome.write('|---- ' + str(jj)+'\n')
                             print('|-- Current theta (Iteration ' + str(pp) + ' ):', theta)
+                            print('|-- Current objective (Iteration ' + str(pp) + ' ):', bestsol[1])
                             print('|-- Current x  (Iteration ' + str(pp) + ' ) =')
                             if self.__log_stream == 1:
                                 self.outcome.write('|-- Current theta (Iteration ' + str(pp) + ' ): ' + str(theta) + '\n')
+                                self.outcome.write('|-- Current objective (Iteration ' + str(pp) + ' ): ' + str(bestsol[1]) + '\n')
                                 self.outcome.write('|-- Current x  (Iteration ' + str(pp) + ' ) =\n')
                             for n in self.compartment_name.keys():
                                 for m in self.compartment_info[n]['tocpm'].keys():
@@ -2952,6 +3166,10 @@ class REALM():
                                             print('|-------- ', xopt[n][m][j])
                                             if self.__log_stream == 1:
                                                 self.outcome.write('|-------- ' + str(xopt[n][m][j])+'\n')
+                            for n in Xc.keys():
+                                print('Customized variable ' + str(n) + ' = ', Xc[n])
+                                if self.__log_stream == 1:
+                                    self.outcome.write('Customized variable ' + str(n) + ' = ' + str(Xc[n]) + '\n')
                             print('|-----------------------------------')
                             if self.__log_stream == 1:
                                 self.outcome.write('|-----------------------------------\n')
@@ -2962,6 +3180,7 @@ class REALM():
                             for jj in besttheta:
                                 print('|---- ', jj)
                             print('|-- Current theta (Iteration ' + str(pp) + ' ):', theta)
+                            print('|-- Current objective (Iteration ' + str(pp) + ' ):', bestsol[1])
                             print('|-- Best x =')
                             if self.__log_stream == 1:
                                 self.outcome.write('|-- Convergence\n')
@@ -2972,6 +3191,7 @@ class REALM():
                                     self.outcome.write('|---- ' + str(jj)+'\n')
                             if self.__log_stream == 1:
                                 self.outcome.write('|-- Current theta (Iteration ' + str(pp) + ' ): ' + str(theta) + '\n')
+                                self.outcome.write('|-- Current objective (Iteration ' + str(pp) + ' ): ' + str(bestsol[1]) + '\n')
                                 self.outcome.write('|-- Best x =\n')
                             for n in self.compartment_name.keys():
                                 for m in self.compartment_info[n]['tocpm'].keys():
@@ -2985,6 +3205,10 @@ class REALM():
                                             print('|-------- ', bestsol[3][n][m][j])
                                             if self.__log_stream == 1:
                                                 self.outcome.write('|-------- ' + str(bestsol[3][n][m][j]) + '\n')
+                            for n in bestsol[4].keys():
+                                print('Customized variable ' + str(n) + ' = ', bestsol[4][n])
+                                if self.__log_stream == 1:
+                                    self.outcome.write('Customized variable ' + str(n) + ' = ' + str(bestsol[4][n]) + '\n')
                             print('|-----------------------------------')
                             if self.__log_stream == 1:
                                 self.outcome.write('|-----------------------------------\n')
@@ -3077,20 +3301,20 @@ class REALM():
         else:
             self.quadraticconstraint.update({name: [varlp, coeflp, varqp, coefqp, sense, rhs]})
 
-    def constraintgeneration(self):
+    def constraintgeneration(self, model):
         if self.solver == 'cplex':
             self.dvar_robust = {}
             self.dcoef_robust = {}
             for name in self.constraint.keys():
                 if self.constraint[name][-1] == 'Expectation':
                     if self.constraint[name][2] in ['L', 'E']:
-                        self.model.linear_constraints.add(
+                        model.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(self.constraint[name][0], self.constraint[name][1])],
                             senses=[self.constraint[name][2]],
                             rhs=[self.constraint[name][3]],
                             names=[name])
                     else:
-                        self.model.linear_constraints.add(
+                        model.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(self.constraint[name][0], [-self.constraint[name][1][ii]
                                                         for ii in range(len(self.constraint[name][1]))])],
                             senses=['L'],
@@ -3105,7 +3329,7 @@ class REALM():
                             self.dcoef_robust[name].append(self.constraint[name][1][i])
 
                     if self.constraint[name][2] in ['L','E']:
-                        self.model.linear_constraints.add(
+                        model.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(self.constraint[name][0] + self.dvar_robust[name],
                                                        self.constraint[name][1]
                                                        + [self.dcoef_robust[name][ii] ** 2 * 0.5/self.theta
@@ -3114,7 +3338,7 @@ class REALM():
                             rhs=[self.constraint[name][3]],
                             names=[name])
                     else:
-                        self.model.linear_constraints.add(
+                        model.linear_constraints.add(
                             lin_expr=[cplex.SparsePair(self.constraint[name][0] + self.dvar_robust[name],
                                                         [-self.constraint[name][1][ii]
                                                          for ii in range(len(self.constraint[name][1]))]
@@ -3127,14 +3351,14 @@ class REALM():
 
             for name in self.quadraticconstraint.keys():
                 if self.quadraticconstraint[name][4] == 'L':
-                    self.model.quadratic_constraints.add(
+                    model.quadratic_constraints.add(
                         lin_expr=[self.quadraticconstraint[name][0],self.quadraticconstraint[name][1]],
                         quad_expr=[self.quadraticconstraint[name][2],self.quadraticconstraint[name][2],
                                    self.quadraticconstraint[name][3]],
                         sense=self.quadraticconstraint[name][4],
                         rhs=self.quadraticconstraint[name][5],name=name)
                 else:
-                    self.model.quadratic_constraints.add(
+                    model.quadratic_constraints.add(
                         lin_expr=[self.quadraticconstraint[name][0],
                                   [-self.quadraticconstraint[name][1][ii]
                                    for ii in range(len(self.quadraticconstraint[name][1]))]],
@@ -3150,21 +3374,22 @@ class REALM():
             for name in self.constraint.keys():
                 if self.constraint[name][-1] == 'Expectation':
                     if self.constraint[name][2] in ['L']:
-                        self.model.addConstr(
-                            (gp.quicksum(self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (gp.quicksum(model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0]))) <= self.constraint[name][3]),
                             name)
                     elif self.constraint[name][2] in ['E']:
-                        self.model.addConstr(
-                            (gp.quicksum(self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (gp.quicksum(model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0]))) == self.constraint[name][3]),
                             name)
                     else:
-                        self.model.addConstr(
-                            (gp.quicksum(-self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (gp.quicksum(-model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0]))) <= -self.constraint[name][3]),
                             name)
                 elif self.constraint[name][-1] == 'Robustness':
+                    # print(name)
                     self.dvar_robust.update({name: []})
                     self.dcoef_robust.update({name: []})
                     for i in range(len(self.constraint[name][0])):
@@ -3173,48 +3398,48 @@ class REALM():
                             self.dcoef_robust[name].append(self.constraint[name][1][i])
 
                     if self.constraint[name][2] in ['L']:
-                        self.model.addConstr(
-                            (gp.quicksum(self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (gp.quicksum(model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0])))
-                             + gp.quicksum(self.model.getVarByName(self.dvar_robust[name][ii])
+                             + gp.quicksum(model.getVarByName(self.dvar_robust[name][ii])
                                            * self.dcoef_robust[name][ii] ** 2 * 0.5 / self.theta
                                            for ii in range(len(self.dcoef_robust[name]))) <= self.constraint[name][3]),
                             name)
                     elif self.constraint[name][2] in ['E']:
-                        self.model.addConstr(
-                            (gp.quicksum(self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (gp.quicksum(model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0])))
-                             + gp.quicksum(self.model.getVarByName(self.dvar_robust[name][ii])
+                             + gp.quicksum(model.getVarByName(self.dvar_robust[name][ii])
                                            * self.dcoef_robust[name][ii] ** 2 * 0.5 / self.theta
                                            for ii in range(len(self.dcoef_robust[name]))) == self.constraint[name][3]),
                             name)
                     else:
-                        self.model.addConstr(
-                            (- gp.quicksum(self.model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
+                        model.addConstr(
+                            (- gp.quicksum(model.getVarByName(self.constraint[name][0][ii]) * self.constraint[name][1][ii]
                                          for ii in range(len(self.constraint[name][0])))
-                             + gp.quicksum(self.model.getVarByName(self.dvar_robust[name][ii])
+                             + gp.quicksum(model.getVarByName(self.dvar_robust[name][ii])
                                            * self.dcoef_robust[name][ii] ** 2 * 0.5 / self.theta
                                            for ii in range(len(self.dcoef_robust[name]))) <= -self.constraint[name][3]),
                             name)
                     self.robustconstraint.update({name: [0, self.theta, self.theta*10, 0]})
 
-            self.model.update()
+            model.update()
             for name in self.quadraticconstraint.keys():
                 if self.quadraticconstraint[name][4] == 'L':
-                    self.model.addConstr(
-                        gp.quicksum(self.model.getVarByName(self.quadraticconstraint[name][2][ii])
-                                     * self.model.getVarByName(self.quadraticconstraint[name][2][ii])
+                    model.addConstr(
+                        gp.quicksum(model.getVarByName(self.quadraticconstraint[name][2][ii])
+                                     * model.getVarByName(self.quadraticconstraint[name][2][ii])
                                      * self.quadraticconstraint[name][3][ii]
                                        for ii in range(len(self.quadraticconstraint[name][3])))
-                         + gp.quicksum(self.model.getVarByName(self.quadraticconstraint[name][0][ii])
+                         + gp.quicksum(model.getVarByName(self.quadraticconstraint[name][0][ii])
                                        * self.quadraticconstraint[name][1][ii]
                                        for ii in range(len(self.quadraticconstraint[name][1]))) <= self.quadraticconstraint[name][5],
                         name)
                 else:
-                    self.model.addConstr(
-                        -gp.quicksum(self.model.getVarByName(self.quadraticconstraint[name][2][ii])**2 * self.quadraticconstraint[name][3][ii]
+                    model.addConstr(
+                        -gp.quicksum(model.getVarByName(self.quadraticconstraint[name][2][ii])**2 * self.quadraticconstraint[name][3][ii]
                                        for ii in range(len(self.quadraticconstraint[name][3])))
-                         - gp.quicksum(self.model.getVarByName(self.quadraticconstraint[name][0][ii])
+                         - gp.quicksum(model.getVarByName(self.quadraticconstraint[name][0][ii])
                                        * self.quadraticconstraint[name][1][ii]
                                        for ii in range(len(self.quadraticconstraint[name][1]))) <= -self.quadraticconstraint[name][5],
                         str(name))
@@ -3222,26 +3447,26 @@ class REALM():
             raise ValueError('Current version only supports Cplex and Gurobi as solver')
 
     '''=============== Step 10. Define objective  ====================='''
-    def set_objectivetype(self,sense='min'):
+    def set_objectivetype(self, model, sense='min'):
         try:
             if sense == 'min':
                 if self.solver == 'cplex':
-                    self.model.objective.set_sense(self.model.objective.sense.minimize)
+                    model.objective.set_sense(model.objective.sense.minimize)
                 elif self.solver == 'gurobi':
-                    self.model.setAttr('ModelSense', GRB.MINIMIZE)
+                    model.setAttr('ModelSense', GRB.MINIMIZE)
                 self.objective_type = sense
             elif sense == 'max':
                 if self.solver == 'cplex':
-                    self.model.objective.set_sense(self.model.objective.sense.minimize)
+                    model.objective.set_sense(model.objective.sense.minimize)
                 elif self.solver == 'gurobi':
-                    self.model.setAttr('ModelSense', GRB.MINIMIZE)
+                    model.setAttr('ModelSense', GRB.MINIMIZE)
                 self.objective_type = sense
             else:
                 raise ValueError('Sense of objective function should be min or max')
         except:
             self.objective_type = sense
 
-    def set_objective(self, state=None, value=None, option=None):
+    def set_objective(self, model, state=None, value=None, option=None):
         if option == 'clear':
             self.objectiveterm = []
         elif state != None and value!=None and option==None:
@@ -3249,10 +3474,10 @@ class REALM():
                 if self.solver == 'cplex':
                     if isinstance(state, str):
                         if self.objective_type == 'max':
-                            self.model.objective.set_linear([(state, -value)])
+                            model.objective.set_linear([(state, -value)])
                             self.expobj.append([state, -value])
                         else:
-                            self.model.objective.set_linear([(state, value)])
+                            model.objective.set_linear([(state, value)])
                             self.expobj.append([state, value])
                     elif len(state) == 3:
                         if isinstance(state[0], str):
@@ -3260,13 +3485,13 @@ class REALM():
                             state = (n,state[1],state[2])
                         (n,j,t) = state
                         if self.objective_type == 'max':
-                            self.model.objective.set_linear([("X." + str(n) + "." + str(j) + "." + str(t), -value)])
+                            model.objective.set_linear([("X." + str(n) + "." + str(j) + "." + str(t), -value)])
                             self.expobj.append(["X." + str(n) + "." + str(j) + "." + str(t), -value])
                         else:
-                            self.model.objective.set_linear([("X." + str(n) + "." + str(j) + "." + str(t), value)])
+                            model.objective.set_linear([("X." + str(n) + "." + str(j) + "." + str(t), value)])
                             self.expobj.append(["X." + str(n) + "." + str(j) + "." + str(t), value])
                         if self.types == 'Robustness':
-                            self.model.objective.set_linear([("Xdagger." + str(n) + "." + str(j) + "." + str(t),
+                            model.objective.set_linear([("Xdagger." + str(n) + "." + str(j) + "." + str(t),
                                                               0.5 * value**2 / self.theta)])
                             self.objtype = 1
                             self.robustobj.append(["Xdagger." + str(n) + "." + str(j) + "." + str(t), value])
@@ -3282,10 +3507,10 @@ class REALM():
                         (n, m, j, t) = state
                         if (j, t) in self.compartment_info[n]['tocpm'][m]['x']:
                             if self.objective_type == 'max':
-                                self.model.objective.set_linear(
+                                model.objective.set_linear(
                                     [("x." + str(n) + "." + str(m) + "." + str(j) + "." + str(t), -value)])
                             else:
-                                self.model.objective.set_linear(
+                                model.objective.set_linear(
                                     [("x." + str(n) + "." + str(m) + "." + str(j) + "." + str(t), value)])
                         else:
                             raise ValueError('Decision flow is not defined')
@@ -3293,13 +3518,13 @@ class REALM():
                         raise ValueError('length of state should be three or four, or state should be a string')
 
                 elif self.solver == 'gurobi':
-                    self.model.update()
+                    model.update()
                     if isinstance(state, str):
                         if self.objective_type == 'max':
-                            self.model.getVarByName(state).Obj = -value
+                            model.getVarByName(state).Obj = -value
                             self.expobj.append([state, -value])
                         else:
-                            self.model.getVarByName(state).Obj = value
+                            model.getVarByName(state).Obj = value
                             self.expobj.append([state, value])
                     elif len(state) == 3:
                         if isinstance(state[0], str):
@@ -3307,13 +3532,13 @@ class REALM():
                             state = (n, state[1], state[2])
                         (n, j, t) = state
                         if self.objective_type == 'max':
-                            self.model.getVarByName('X.'+str(n)+'.'+str(j)+'.'+str(t)).Obj = -value
+                            model.getVarByName('X.'+str(n)+'.'+str(j)+'.'+str(t)).Obj = -value
                             self.expobj.append(["X." + str(n) + "." + str(j) + "." + str(t), -value])
                         else:
-                            self.model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).Obj = value
+                            model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).Obj = value
                             self.expobj.append(["X." + str(n) + "." + str(j) + "." + str(t), value])
                         if self.types == 'Robustness':
-                            self.model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).Obj \
+                            model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).Obj \
                                 = 0.5 * value**2 / self.theta
                             self.objtype = 1
                             self.robustobj.append(["Xdagger." + str(n) + "." + str(j) + "." + str(t), value])
@@ -3329,10 +3554,10 @@ class REALM():
                         (n,m,j,t) = state
                         if (j,t) in self.compartment_info[n]['tocpm'][m]['x']:
                             if self.objective_type == 'max':
-                                self.model.getVarByName(
+                                model.getVarByName(
                                     'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).Obj = -value
                             else:
-                                self.model.getVarByName(
+                                model.getVarByName(
                                     'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).Obj = value
                         else:
                             raise ValueError('Decision flow is not defined')
@@ -3347,13 +3572,14 @@ class REALM():
 
     '''=============== Step 11. Solve and output  ====================='''
 
-    def solvemodel(self, ct=None, target=None):
+    def solvemodel(self, model=None, ct=None, target=None):
         if self.solver == 'cplex':
-            sol = self.__solvemodel_cplex(ct=ct, target=target)
+            sol = self.__solvemodel_cplex(model=model, ct=ct, target=target)
         elif self.solver == 'gurobi':
-            sol = self.__solvemodel_gurobi(ct=ct, target=target)
+            sol = self.__solvemodel_gurobi(model=model, ct=ct, target=target)
         return sol
-    def __solvemodel_cplex(self, ct=None, target=None):
+
+    def __solvemodel_cplex(self, model=None, ct=None, target=None):
         if self.types == 'Expectation':
             X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                  for n in range(max(self.compartment_name.keys()) + 1)]
@@ -3361,35 +3587,37 @@ class REALM():
                   for m in range(max(self.compartment_name.keys()) + 1)]
                  for n in range(max(self.compartment_name.keys()) + 1)]
             Xc = {}
-            self.model.set_results_stream(None)
-            self.model.set_log_stream(None)
+            # model.set_results_stream(None)
+            # model.set_log_stream(None)
             if ct != None:
-                self.model.parameters.timelimit.set(ct)
-            self.model.solve()
+                model.parameters.timelimit.set(ct)
+            model.solve()
             try:
-                bestobj = self.model.solution.get_objective_value()
+                bestobj = model.solution.get_objective_value()
                 for n in self.compartment_name.keys():
-                    X[n] = [[round(self.model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t)), 6)
+                    X[n] = [[round(model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t)), 6)
                              for t in range(self.Time)] for j in range(self.group)]
                     for m in self.compartment_info[n]['tocpm'].keys():
                         x[n][m] = [
-                            [self.model.solution.get_values('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t))
+                            [model.solution.get_values('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t))
                              if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
                              for t in range(self.Time)] for j in range(self.group)]
                 for n in self.custom_var.keys():
-                    Xc.update({n: self.model.solution.get_values(n)})
-                sol = (self.model.solution.get_status(), bestobj, X, x, Xc)
+                    Xc.update({n: model.solution.get_values(n)})
+                sol = (model.solution.get_status(), bestobj, X, x, Xc)
                 return sol
             except:
                 return 0
         elif self.types == 'Robustness' and target != None:
-            self.model.set_results_stream(None)
-            self.model.set_log_stream(None)
+            # model.set_results_stream(None)
+            # model.set_log_stream(None)
             T0 = []
             if self.objtype:
                 self.robustconstraint.update({'obj': [0, self.theta, self.theta * 10, 0]})
             T1 = list(self.robustconstraint.keys())
 
+            # print('T1=',T1)
+            # print(self.robustconstraint)
             T1.sort()
             p = 0
             print('\n============================================')
@@ -3412,39 +3640,39 @@ class REALM():
                 gaptheta = 1e10
                 pp = 0
                 print('+- Begin round ' + str(p))
-                if self.__log_stream == 1:
+                if self.__log_stream == 1 and self.__approximation == 'SO':
                     self.outcome.write('+- Begin round ' + str(p) + '\n')
                 while max([self.robustconstraint[name][2] / (self.robustconstraint[name][0] + 0.0001) for name in
                            T1]) > 1.01:
                     pp += 1
                     for name in T1:
                         if name != 'obj':
-                            self.model.linear_constraints.set_coefficients([(name, self.dvar_robust[name][i],
+                            model.linear_constraints.set_coefficients([(name, self.dvar_robust[name][i],
                                                                              self.dcoef_robust[name][i] ** 2 * 0.5 /
                                                                              self.robustconstraint[name][1])
                                                                             for i in range(len(self.dcoef_robust[name]))
                                                                             if self.dcoef_robust[name][i] != 0])
                         else:
                             for ii in range(len(self.robustobj)):
-                                self.model.objective.set_linear([(self.robustobj[ii][0],
+                                model.objective.set_linear([(self.robustobj[ii][0],
                                                                   0.5 * self.robustobj[ii][1] ** 2 /
                                                                   self.robustconstraint[name][1])])
                     if ct != None:
-                        self.model.parameters.timelimit.set(ct)
+                        model.parameters.timelimit.set(ct)
                     print('|- Iteration ' + str(pp) + ' of round ' + str(p) + ':')
-                    if self.__log_stream == 1:
+                    if self.__log_stream == 1 and self.__approximation == 'SO':
                         self.outcome.write('|- Iteration ' + str(pp) + ' of round ' + str(p) + ':\n')
-                    self.model.solve()
+                    model.solve()
                     try:
-                        objective_value = self.model.solution.get_objective_value()
+                        objective_value = model.solution.get_objective_value()
                     except:
                         objective_value = 1e+30
                     if objective_value < target:
                         num_infeasible = 0
                         time.sleep(5)
-                        self.model.write('modelrobust_SO_' + str(round(target, 2)) + '.mps')
-                        status = self.model.solution.get_status()
-                        bestobj = self.model.solution.get_objective_value()
+                        model.write('modelrobust_SO_' + str(round(target, 2)) + '.mps')
+                        status = model.solution.get_status()
+                        bestobj = model.solution.get_objective_value()
                         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xdagger = [[[0 for t in range(self.Time)] for j in range(self.group)]
@@ -3454,29 +3682,29 @@ class REALM():
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xc = {}
                         for n in self.compartment_name.keys():
-                            X[n] = [[self.model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t))
+                            X[n] = [[model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t))
                                      for t in range(self.Time)] for j in range(self.group)]
                             Xdagger[n] = [
-                                [self.model.solution.get_values('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t))
+                                [model.solution.get_values('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t))
                                  for t in range(self.Time)] for j in range(self.group)]
                             for m in self.compartment_info[n]['tocpm'].keys():
-                                x[n][m] = [[round(self.model.solution.get_values(
+                                x[n][m] = [[round(model.solution.get_values(
                                     'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)), 6)
                                             if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
                                             for t in range(self.Time)] for j in range(self.group)]
                         for n in self.custom_var.keys():
-                            Xc.update({n: self.model.solution.get_values(n)})
+                            Xc.update({n: model.solution.get_values(n)})
                         for name in T1:
                             if name != 'obj':
-                                drhs = self.model.linear_constraints.get_rhs(name)
+                                drhs = model.linear_constraints.get_rhs(name)
 
-                                dvar1 = self.model.solution.get_values(self.constraint[name][0])
-                                dcoef1 = self.model.linear_constraints.get_coefficients(
+                                dvar1 = model.solution.get_values(self.constraint[name][0])
+                                dcoef1 = model.linear_constraints.get_coefficients(
                                     [(name, iii) for iii in self.constraint[name][0]])
                                 lhs1 = sum([dvar1[i] * dcoef1[i] for i in range(len(dvar1))])
 
-                                dvar2 = self.model.solution.get_values(self.dvar_robust[name])
-                                dcoef2 = self.model.linear_constraints.get_coefficients(
+                                dvar2 = model.solution.get_values(self.dvar_robust[name])
+                                dcoef2 = model.linear_constraints.get_coefficients(
                                     [(name, iii) for iii in self.dvar_robust[name]])
                                 lhs2 = sum([dvar2[i] * dcoef2[i] for i in range(len(dvar2))])
                                 if lhs1 + lhs2 < 0.999 * drhs:
@@ -3488,14 +3716,14 @@ class REALM():
                                     self.robustconstraint[name][3] = 1
                                     gaptheta = 0
                             else:
-                                if self.model.solution.get_objective_value() < 0.999 * target:
-                                    dvar3 = self.model.solution.get_values(
+                                if model.solution.get_objective_value() < 0.999 * target:
+                                    dvar3 = model.solution.get_values(
                                         [self.expobj[iii][0] for iii in range(len(self.expobj))])
-                                    dcoef3 = self.model.objective.get_linear(
+                                    dcoef3 = model.objective.get_linear(
                                         [self.expobj[iii][0] for iii in range(len(self.expobj))])
-                                    dvar4 = self.model.solution.get_values(
+                                    dvar4 = model.solution.get_values(
                                         [self.robustobj[iii][0] for iii in range(len(self.robustobj))])
-                                    dcoef4 = self.model.objective.get_linear(
+                                    dcoef4 = model.objective.get_linear(
                                         [self.robustobj[iii][0] for iii in range(len(self.robustobj))])
                                     lhs3 = sum([dvar3[iii] * dcoef3[iii] for iii in range(len(dvar3))])
                                     lhs4 = sum([dvar4[iii] * dcoef4[iii] for iii in range(len(dvar4))])
@@ -3508,7 +3736,7 @@ class REALM():
                                     gaptheta = 0
                         print('|-- Feasible ',
                               [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Feasible ' + str([(name, self.robustconstraint[name])
                                                                       for name in self.robustconstraint.keys()]) + '\n')
                         if gaptheta <= 1:
@@ -3521,11 +3749,11 @@ class REALM():
                                 self.robustconstraint[name][2] = self.robustconstraint[name][1]
                                 self.robustconstraint[name][1] = self.robustconstraint[name][1] / gaptheta
                             gaptheta = 0
-                        print('|-- Current objective and target:', self.model.solution.get_objective_value(), target)
+                        print('|-- Current objective and target:', model.solution.get_objective_value(), target)
                         print('|-- Current x =')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Current objective and target: '
-                                               + str(self.model.solution.get_objective_value()) + ',' + str(
+                                               + str(model.solution.get_objective_value()) + ',' + str(
                                 target) + '\n')
                             self.outcome.write('|-- Current x =\n')
                         for n in self.compartment_name.keys():
@@ -3535,13 +3763,13 @@ class REALM():
                                           ' to compartment ' + self.compartment_name[m] + ':')
                                     for j in range(self.group):
                                         print('|-------- ', x[n][m][j])
-                                    if self.__log_stream == 1:
+                                    if self.__log_stream == 1 and self.__approximation == 'SO':
                                         self.outcome.write('|---- From compartment ' + self.compartment_name[n] +
                                                            ' to compartment ' + self.compartment_name[m] + ':\n')
                                         for j in range(self.group):
                                             self.outcome.write('|-------- ' + str(x[n][m][j]) + '\n')
                         print('|--------------------------------------------')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|--------------------------------------------\n')
                     else:
                         if num_infeasible < 3:
@@ -3560,7 +3788,7 @@ class REALM():
                         print('|-- Infeasible ',
                               [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
                         print('|--------------------------------------------')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Infeasible '
                                                + str(
                                 [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
@@ -3578,7 +3806,7 @@ class REALM():
                 print('|- T1 = ', T1)
                 print('|- T0 = ', T0)
                 print('|--------------------------------------------')
-                if self.__log_stream == 1:
+                if self.__log_stream == 1 and self.__approximation == 'SO':
                     self.outcome.write('+- Now sets T0 and T1 are\n')
                     self.outcome.write('|- T1 = ' + str(T1) + '\n')
                     self.outcome.write('|- T0 = ' + str(T0) + '\n')
@@ -3586,21 +3814,21 @@ class REALM():
             try:
                 try:
                     time.sleep(5)
-                    self.model = cplex.Cplex('modelrobust_SO_' + str(round(target, 2)) + '.mps')
-                    self.model.set_results_stream(None)
-                    self.model.set_log_stream(None)
-                    self.model.solve()
+                    model = cplex.Cplex('modelrobust_SO_' + str(round(target, 2)) + '.mps')
+                    model.set_results_stream(None)
+                    model.set_log_stream(None)
+                    model.solve()
                     try:
-                        objective_value = self.model.solution.get_objective_value()
+                        objective_value = model.solution.get_objective_value()
                     except:
                         objective_value = 1e+30
                     if objective_value < bestobj:
-                        print('|-- Optimal objective value:', self.model.solution.get_objective_value(), bestobj)
-                        if self.__log_stream == 1:
+                        print('|-- Optimal objective value:', model.solution.get_objective_value(), bestobj)
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Optimal objective value: '
-                                               + str(self.model.solution.get_objective_value()) + '\n')
-                        status = self.model.solution.get_status()
-                        bestobj = self.model.solution.get_objective_value()
+                                               + str(model.solution.get_objective_value()) + '\n')
+                        status = model.solution.get_status()
+                        bestobj = model.solution.get_objective_value()
                         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         x = [[[[0 for t in range(self.Time)] for j in range(self.group)]
@@ -3608,15 +3836,15 @@ class REALM():
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xc = {}
                         print('|-- Optimal x=')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Optimal x=\n')
                         for n in self.compartment_name.keys():
                             X[n] = [
-                                [round(self.model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t)), 6)
+                                [round(model.solution.get_values('X.' + str(n) + '.' + str(j) + '.' + str(t)), 6)
                                  for t in range(self.Time)] for j in range(self.group)]
                             for m in self.compartment_info[n]['tocpm'].keys():
                                 x[n][m] = [[round(
-                                    self.model.solution.get_values(
+                                    model.solution.get_values(
                                         'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)),
                                     6)
                                             if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
@@ -3626,15 +3854,15 @@ class REALM():
                                           ' to compartment ' + self.compartment_name[m] + ':')
                                     for j in range(self.group):
                                         print('|-------- ', x[n][m][j])
-                                    if self.__log_stream == 1:
+                                    if self.__log_stream == 1 and self.__approximation == 'SO':
                                         self.outcome.write('|---- From compartment ' + self.compartment_name[n] +
                                                            ' to compartment ' + self.compartment_name[m] + ':\n')
                                         for j in range(self.group):
                                             self.outcome.write('|-------- ' + str(x[n][m][j]) + '\n')
                         for n in self.custom_var.keys():
-                            Xc.update({n: self.model.solution.get_values(n)})
+                            Xc.update({n: model.solution.get_values(n)})
                         print('|============================================\n\n')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|============================================\n\n')
                     else:
                         print('|-- Optimal objective value:', bestobj)
@@ -3664,7 +3892,7 @@ class REALM():
             except:
                 return 0
 
-    def __solvemodel_gurobi(self, ct=None, target=None):
+    def __solvemodel_gurobi(self, model=None, ct=None, target=None):
         if self.types == 'Expectation':
             X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                  for n in range(max(self.compartment_name.keys()) + 1)]
@@ -3673,28 +3901,31 @@ class REALM():
                  for n in range(max(self.compartment_name.keys()) + 1)]
             Xc = {}
             if ct != None:
-                self.model.setParam("timelimit", ct)
-            self.model.optimize()
-
+                model.setParam("timelimit", ct)
+            # print(1)
+            # model.write('model.mps')
+            # model.read('model.mps')
+            model.optimize()
+            print('model status ', model.getAttr('status'))
             try:
-                bestobj = self.model.getAttr('ObjVal')
+                bestobj = model.getAttr('ObjVal')
                 for n in self.compartment_name.keys():
-                    X[n] = [[round(self.model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x, 6)
+                    X[n] = [[round(model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x, 6)
                              for t in range(self.Time)] for j in range(self.group)]
                     for m in self.compartment_info[n]['tocpm'].keys():
                         x[n][m] = [
-                            [self.model.getVarByName('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).x
+                            [model.getVarByName('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).x
                              if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
                              for t in range(self.Time)] for j in range(self.group)]
                 for n in self.custom_var.keys():
-                    Xc.update({n: self.model.getVarByName(n).x})
-                sol = (self.model.getAttr('status'), bestobj, X, x, Xc)
+                    Xc.update({n: model.getVarByName(n).x})
+                sol = (model.getAttr('status'), bestobj, X, x, Xc)
                 return sol
             except:
                 return 0
         elif self.types == 'Robustness' and target != None:
-            self.model.set_results_stream(None)
-            self.model.set_log_stream(None)
+            # model.set_results_stream(None)
+            # model.set_log_stream(None)
             T0 = []
             if self.objtype:
                 self.robustconstraint.update({'obj': [0, self.theta, self.theta * 10, 0]})
@@ -3721,7 +3952,7 @@ class REALM():
                 gaptheta = 1e10
                 pp = 0
                 print('+- Begin round ' + str(p))
-                if self.__log_stream == 1:
+                if self.__log_stream == 1 and self.__approximation == 'SO':
                     self.outcome.write('+- Begin round ' + str(p) + '\n')
                 while max([self.robustconstraint[name][2] / (self.robustconstraint[name][0] + 0.0001) for name in
                            T1]) > 1.01:
@@ -3730,29 +3961,72 @@ class REALM():
                         if name != 'obj':
                             for i in range(len(self.dcoef_robust[name])):
                                 if self.dcoef_robust[name][i] != 0:
-                                    self.model.chgCoeff(self.model.getConstrByName(name),
-                                                        self.model.getVarByName(self.dvar_robust[name][i]),
+                                    model.chgCoeff(model.getConstrByName(name),
+                                                        model.getVarByName(self.dvar_robust[name][i]),
                                                         self.dcoef_robust[name][i] ** 2 * 0.5 / self.robustconstraint[name][1])
                         else:
+                            # m.chgCoeff(m.getConstrByName('c0'), m.getVarByName('x'), 2)
                             for ii in range(len(self.robustobj)):
-                                self.model.getVarByName(self.robustobj[ii][0]).Obj = \
+                                model.getVarByName(self.robustobj[ii][0]).Obj = \
                                     0.5 * self.robustobj[ii][1] ** 2 / self.robustconstraint[name][1]
                     if ct != None:
-                        self.model.setParam("timelimit", ct)
+                        model.setParam("timelimit", ct)
                     print('|- Iteration ' + str(pp) + ' of round ' + str(p) + ':')
-                    if self.__log_stream == 1:
+                    if self.__log_stream == 1 and self.__approximation == 'SO':
                         self.outcome.write('|- Iteration ' + str(pp) + ' of round ' + str(p) + ':\n')
-                    self.model.optimize()
-                    try:
-                        objective_value = self.model.getAttr('ObjVal')
-                    except:
+                    model.optimize()
+                    print(model.getAttr('status'))
+                    # model.computeIIS()
+                    # model.write("model_"+str(p)+".ilp")
+                    # if model.status == GRB.INFEASIBLE:
+                    #     model.feasRelaxS(1, False, False, True)
+                    #     model.optimize()
+                    # print(model.getAttr('status'))
+                    if model.getAttr('status') == 2:
+                        objective_value = model.getAttr('ObjVal')
+                    elif model.getAttr('status') in [8,9,13]:
+                        try:
+                            objective_value = model.getAttr('ObjVal')
+                            Xdagger_label = all(
+                                [model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).lb
+                                 <= model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).x
+                                 <= model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).ub
+                                 for n in range(max(self.compartment_name.keys()) + 1) for j in range(self.group)
+                                 for t in range(self.Time)])
+                            X_label = all([model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).lb<=
+                                            model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x
+                                            <=model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).ub
+                                    for n in range(max(self.compartment_name.keys()) + 1)
+                                    for j in range(self.group) for t in range(self.Time)])
+                            x_label = all([model.getVarByName('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).lb
+                                     <= model.getVarByName('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).x
+                                     <= model.getVarByName('x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).ub
+                                     if m in self.compartment_info[n]['tocpm'].keys() and
+                                        (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 1
+                                     for n in range(max(self.compartment_name.keys()) + 1)
+                                     for m in range(max(self.compartment_name.keys()) + 1)
+                                     for j in range(self.group) for t in range(self.Time)])
+                            Xc_label = all([model.getVarByName(n).lb <= model.getVarByName(n).x <= model.getVarByName(n).ub
+                                            for n in self.custom_var.keys()])
+                            if X_label and Xdagger_label and x_label and Xc_label:
+                                pass
+                            else:
+                                print('Solution is infeasible')
+                                objective_value = 1e+30
+                        except:
+                            objective_value = 1e+30
+                    else:
                         objective_value = 1e+30
+                    # try:
+                    #     objective_value = model.getAttr('ObjVal')
+                    # except:
+                    #     objective_value = 1e+30
                     if objective_value < target:
                         num_infeasible = 0
                         time.sleep(5)
-                        self.model.write('modelrobust_SO_' + str(round(target, 2)) + '.mps')
-                        status = self.model.getAttr('status')
-                        bestobj = self.model.getAttr('ObjVal')
+                        model.write('modelrobust_SO_' + str(round(target, 2)) + '.mps')
+                        status = model.getAttr('status')
+                        bestobj = model.getAttr('ObjVal')
                         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xdagger = [[[0 for t in range(self.Time)] for j in range(self.group)]
@@ -3762,28 +4036,28 @@ class REALM():
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xc = {}
                         for n in self.compartment_name.keys():
-                            X[n] = [[self.model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x
+                            X[n] = [[model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x
                                      for t in range(self.Time)] for j in range(self.group)]
                             Xdagger[n] = [
-                                [self.model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).x
+                                [model.getVarByName('Xdagger.' + str(n) + '.' + str(j) + '.' + str(t)).x
                                  for t in range(self.Time)] for j in range(self.group)]
                             for m in self.compartment_info[n]['tocpm'].keys():
-                                x[n][m] = [[round(self.model.getVarByName(
+                                x[n][m] = [[round(model.getVarByName(
                                     'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).x, 6)
                                             if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
                                             for t in range(self.Time)] for j in range(self.group)]
                         for n in self.custom_var.keys():
-                            Xc.update({n: self.model.getVarByName(n).x})
+                            Xc.update({n: model.getVarByName(n).x})
                         for name in T1:
                             if name != 'obj':
-                                drhs = self.model.getConstrByName(name).rhs
-                                dvar1 = [self.model.getVarByName(iii).x for iii in self.constraint[name][0]]
-                                dcoef1 = [self.model.getCoeff(self.model.getConstrByName(name), self.model.getVarByName(iii))
+                                drhs = model.getConstrByName(name).rhs
+                                dvar1 = [model.getVarByName(iii).x for iii in self.constraint[name][0]]
+                                dcoef1 = [model.getCoeff(model.getConstrByName(name), model.getVarByName(iii))
                                           for iii in self.constraint[name][0]]
                                 lhs1 = sum([dvar1[i] * dcoef1[i] for i in range(len(dvar1))])
 
-                                dvar2 = [self.model.getVarByName(iii).x for iii in self.dvar_robust[name]]
-                                dcoef2 = [self.model.getCoeff(self.model.getConstrByName(name), self.model.getVarByName(iii))
+                                dvar2 = [model.getVarByName(iii).x for iii in self.dvar_robust[name]]
+                                dcoef2 = [model.getCoeff(model.getConstrByName(name), model.getVarByName(iii))
                                           for iii in self.dvar_robust[name]]
                                 lhs2 = sum([dvar2[i] * dcoef2[i] for i in range(len(dvar2))])
                                 if lhs1 + lhs2 < 0.999 * drhs:
@@ -3795,11 +4069,15 @@ class REALM():
                                     self.robustconstraint[name][3] = 1
                                     gaptheta = 0
                             else:
-                                if self.model.getAttr('ObjVal') < 0.999 * target:
-                                    dvar3 = [self.model.getVarByName(self.expobj[iii][0]).x for iii in range(len(self.expobj))]
-                                    dcoef3 = [self.model.getVarByName(self.expobj[iii][0]).obj for iii in range(len(self.expobj))]
-                                    dvar4 = [self.model.getVarByName(self.robustobj[iii][0]).x for iii in range(len(self.robustobj))]
-                                    dcoef4 = [self.model.getVarByName(self.robustobj[iii][0]).obj for iii in range(len(self.robustobj))]
+                                if model.getAttr('ObjVal') < 0.999 * target:
+                                    dvar3 = [model.getVarByName(self.expobj[iii][0]).
+                                                 x for iii in range(len(self.expobj))]
+                                    dcoef3 = [model.getVarByName(self.expobj[iii][0]).obj
+                                              for iii in range(len(self.expobj))]
+                                    dvar4 = [model.getVarByName(self.robustobj[iii][0]).x
+                                             for iii in range(len(self.robustobj))]
+                                    dcoef4 = [model.getVarByName(self.robustobj[iii][0]).obj
+                                              for iii in range(len(self.robustobj))]
 
                                     lhs3 = sum([dvar3[iii] * dcoef3[iii] for iii in range(len(dvar3))])
                                     lhs4 = sum([dvar4[iii] * dcoef4[iii] for iii in range(len(dvar4))])
@@ -3812,7 +4090,7 @@ class REALM():
                                     gaptheta = 0
                         print('|-- Feasible ',
                               [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Feasible ' + str([(name, self.robustconstraint[name])
                                                                       for name in self.robustconstraint.keys()]) + '\n')
                         if gaptheta <= 1:
@@ -3826,10 +4104,10 @@ class REALM():
                                 self.robustconstraint[name][2] = self.robustconstraint[name][1]
                                 self.robustconstraint[name][1] = self.robustconstraint[name][1] / gaptheta
                             gaptheta = 0
-                        print('|-- Current objective and target:', self.model.getAttr('ObjVal'), target)
+                        print('|-- Current objective and target:', model.getAttr('ObjVal'), target)
                         print('|-- Current x =')
-                        if self.__log_stream == 1:
-                            self.outcome.write('|-- Current objective and target: '+ str(self.model.getAttr('ObjVal'))
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
+                            self.outcome.write('|-- Current objective and target: '+ str(model.getAttr('ObjVal'))
                                                + ',' + str(target) + '\n')
                             self.outcome.write('|-- Current x =\n')
                         for n in self.compartment_name.keys():
@@ -3839,40 +4117,53 @@ class REALM():
                                           ' to compartment ' + self.compartment_name[m] + ':')
                                     for j in range(self.group):
                                         print('|-------- ', x[n][m][j])
-                                    if self.__log_stream == 1:
+                                    if self.__log_stream == 1 and self.__approximation == 'SO':
                                         self.outcome.write('|---- From compartment ' + self.compartment_name[n] +
                                                            ' to compartment ' + self.compartment_name[m] + ':\n')
                                         for j in range(self.group):
                                             self.outcome.write('|-------- ' + str(x[n][m][j]) + '\n')
                         print('|--------------------------------------------')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|--------------------------------------------\n')
-                            # self.model = cplex.Cplex('model_robust_' + str(target) + '.mps')
+                            # model = cplex.Cplex('model_robust_' + str(target) + '.mps')
                     else:
-                        if num_infeasible < 3:
-                            for name in T1:
-                                # print(self.robustconstraint[name])
-                                self.robustconstraint[name][0] = self.robustconstraint[name][1]
-                                self.robustconstraint[name][1] = (self.robustconstraint[name][2]
-                                                                  + self.robustconstraint[name][1]) / 2.0
-                            num_infeasible += 1
-                        else:
-                            for name in T1:
-                                # print(self.robustconstraint[name])
-                                self.robustconstraint[name][0] = self.robustconstraint[name][1]
-                                self.robustconstraint[name][1] = max(self.robustconstraint[name][2] - 0.1,
-                                                                     (self.robustconstraint[name][2] +
-                                                                      self.robustconstraint[name][1]) / 2.0)
-                            num_infeasible = 0
+                        for name in T1:
+                            self.robustconstraint[name][0] = self.robustconstraint[name][1]
+                            self.robustconstraint[name][1] = (self.robustconstraint[name][2]
+                                                              + self.robustconstraint[name][1]) / 2.0
+                        num_infeasible += 1
+                        # if num_infeasible < 3:
+                        #     for name in T1:
+                        #         self.robustconstraint[name][0] = self.robustconstraint[name][1]
+                        #         self.robustconstraint[name][1] = (self.robustconstraint[name][2]
+                        #                                           + self.robustconstraint[name][1]) / 2.0
+                        #     num_infeasible += 1
+                        # else:
+                        #     for name in T1:
+                        #         self.robustconstraint[name][0] = self.robustconstraint[name][1]
+                        #         self.robustconstraint[name][1] = max(self.robustconstraint[name][2] - 0.1,
+                        #                                              (self.robustconstraint[name][2] +
+                        #                                               self.robustconstraint[name][1]) / 2.0)
+                        #     num_infeasible = 0
+                        try:
+                            print('|-- Current objective and target:', model.getAttr('ObjVal'), target)
+                        except:
+                            pass
                         print('|-- Infeasible ',
                               [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
                         print('|--------------------------------------------')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Infeasible '
                                                + str(
                                 [(name, self.robustconstraint[name]) for name in self.robustconstraint.keys()])
                                                + '\n')
+                            try:
+                                self.outcome.write('|-- Current objective and target: ' + str(model.getAttr('ObjVal'))
+                                                   + ',' + str(target) + '\n')
+                            except:
+                                pass
                             self.outcome.write('|--------------------------------------------\n')
+
                 # print('iter = ',[self.robustconstraint[name][3] for name in self.robustconstraint.keys()])
                 if sum([self.robustconstraint[name][3] for name in self.robustconstraint.keys()]) == 0:
                     T1 = []
@@ -3886,7 +4177,7 @@ class REALM():
                 print('|- T1 = ', T1)
                 print('|- T0 = ', T0)
                 print('|--------------------------------------------')
-                if self.__log_stream == 1:
+                if self.__log_stream == 1 and self.__approximation == 'SO':
                     self.outcome.write('+- Now sets T0 and T1 are\n')
                     self.outcome.write('|- T1 = ' + str(T1) + '\n')
                     self.outcome.write('|- T0 = ' + str(T0) + '\n')
@@ -3894,21 +4185,23 @@ class REALM():
             try:
                 try:
                     time.sleep(5)
-                    self.model = gp.read('modelrobust_SO_' + str(round(target, 2)) + '.mps')
-                    # self.model.set_results_stream(None)
-                    # self.model.set_log_stream(None)
-                    self.model.optimize()
+                    model = gp.read('modelrobust_SO_' + str(round(target, 2)) + '.mps')
+                    os.remove('modelrobust_SO_' + str(round(target, 2)) + '.mps')
+                    model.setParam("timelimit", ct)
+                    # model.set_results_stream(None)
+                    # model.set_log_stream(None)
+                    model.optimize()
                     try:
-                        objective_value = self.model.getAttr('ObjVal')
+                        objective_value = model.getAttr('ObjVal')
                     except:
                         objective_value = 1e+30
                     if objective_value < bestobj:
-                        print('|-- Optimal objective value:', self.model.getAttr('ObjVal'), bestobj)
-                        if self.__log_stream == 1:
+                        print('|-- Optimal objective value:', model.getAttr('ObjVal'), bestobj)
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Optimal objective value: '
-                                               + str(self.model.getAttr('ObjVal')) + '\n')
-                        status = self.model.getAttr('status')
-                        bestobj = self.model.getAttr('ObjVal')
+                                               + str(model.getAttr('ObjVal')) + '\n')
+                        status = model.getAttr('status')
+                        bestobj = model.getAttr('ObjVal')
                         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         x = [[[[0 for t in range(self.Time)] for j in range(self.group)]
@@ -3916,13 +4209,13 @@ class REALM():
                              for n in range(max(self.compartment_name.keys()) + 1)]
                         Xc = {}
                         print('|-- Optimal x=')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|-- Optimal x=\n')
                         for n in self.compartment_name.keys():
-                            X[n] = [[round(self.model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x,6)
+                            X[n] = [[round(model.getVarByName('X.' + str(n) + '.' + str(j) + '.' + str(t)).x,6)
                                      for t in range(self.Time)] for j in range(self.group)]
                             for m in self.compartment_info[n]['tocpm'].keys():
-                                x[n][m] = [[round(self.model.getVarByName(
+                                x[n][m] = [[round(model.getVarByName(
                                     'x.' + str(n) + '.' + str(m) + '.' + str(j) + '.' + str(t)).x, 6)
                                             if (j, t) in self.compartment_info[n]['tocpm'][m]['x'] else 0
                                             for t in range(self.Time)] for j in range(self.group)]
@@ -3931,15 +4224,15 @@ class REALM():
                                           ' to compartment ' + self.compartment_name[m] + ':')
                                     for j in range(self.group):
                                         print('|-------- ', x[n][m][j])
-                                    if self.__log_stream == 1:
+                                    if self.__log_stream == 1 and self.__approximation == 'SO':
                                         self.outcome.write('|---- From compartment ' + self.compartment_name[n] +
                                                            ' to compartment ' + self.compartment_name[m] + ':\n')
                                         for j in range(self.group):
                                             self.outcome.write('|-------- ' + str(x[n][m][j]) + '\n')
                         for n in self.custom_var.keys():
-                            Xc.update({n: self.model.getVarByName(n).x})
+                            Xc.update({n: model.getVarByName(n).x})
                         print('|============================================\n\n')
-                        if self.__log_stream == 1:
+                        if self.__log_stream == 1 and self.__approximation == 'SO':
                             self.outcome.write('|============================================\n\n')
                     else:
                         print('|-- Optimal objective value:', bestobj)
@@ -3967,6 +4260,7 @@ class REALM():
                 sol = (status, bestobj, X, x, Xc)
                 return sol
             except:
+                print('hahaha',self.robustconstraint)
                 return 0
     '''================================================================='''
     '''==========================Prediction============================='''
@@ -3995,6 +4289,7 @@ class REALM():
                 else:
                     p = int(p / self.gap + 1) * self.gap
         else:
+            # print(self.compartment_info[m]['local']['p_idp'])
             timemax = len(self.compartment_info[m]['local']['p_idp'][j][k]) - 1
             p = self.compartment_info[m]['local']['p_idp'][j][k][min(t,timemax)]
         return p
@@ -4006,48 +4301,54 @@ class REALM():
                 temp = list(self.compartment_info[m]['tocpm'][n]['q_norm'].keys())
                 timemax = max([temp[i][1] for i in range(len(temp)) if temp[i][0] == j])
                 t = min(t, timemax)
-                betabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][0]
-                gammabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][1]
-                phibar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][2]
-                psibar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][3]
-                alphabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][4]
-                beta = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][0]
+                # betabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][0]
+                # gammabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][1]
+                # phibar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][2]
+                # psibar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][3]
+                # alphabar = self.compartment_info[m]['tocpm'][n]['q_norm'][(j, t)][4]
+                # beta = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][0]
                 gamma = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][1]
-                phi = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][2]
+                # phi = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][2]
                 psi = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][3]
                 alpha = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][4]
-                qhat1 = sum([X[mm][k][t]/ scale * (beta[mm][k] * phat[mm][k][j][t] + gamma[mm][k])
-                                              for mm in self.compartment_name.keys() for k in range(self.group)])\
-                         + sum([x[mm][nn][k][t]/ scale * (phi[mm][k] * phat[mm][k][j][t] + psi[mm][k])
-                                              for mm in self.compartment_name.keys()
+
+                qhat = sum([X[mm][k][t] / scale * gamma[mm][k] for mm in self.compartment_name.keys() for k in range(self.group)])\
+                         + sum([x[mm][nn][k][t]/ scale * psi[mm][k] for mm in self.compartment_name.keys()
                               for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
                               if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x'] ]) + alpha
-                qhat2 = sum([X[mm][k][t]/ scale * (betabar[mm][k] * phat[mm][k][j][t] + gammabar[mm][k])
-                                              for mm in self.compartment_name.keys() for k in range(self.group)])\
-                         + sum([x[mm][nn][k][t]/ scale * (phibar[mm][k] * phat[mm][k][j][t] + psibar[mm][k])
-                                              for mm in self.compartment_name.keys()
-                              for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
-                              if (k,t) in self.compartment_info[mm]['tocpm'][nn]['x'] ]) + alphabar
+
+                # qhat1 = sum([X[mm][k][t]/ scale * (beta[mm][k] * phat[mm][k][j][t] + gamma[mm][k])
+                #                               for mm in self.compartment_name.keys() for k in range(self.group)])\
+                #          + sum([x[mm][nn][k][t]/ scale * (phi[mm][k] * phat[mm][k][j][t] + psi[mm][k])
+                #                               for mm in self.compartment_name.keys()
+                #               for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
+                #               if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x'] ]) + alpha
+                # qhat2 = sum([X[mm][k][t]/ scale * (betabar[mm][k] * phat[mm][k][j][t] + gammabar[mm][k])
+                #                               for mm in self.compartment_name.keys() for k in range(self.group)])\
+                #          + sum([x[mm][nn][k][t]/ scale * (phibar[mm][k] * phat[mm][k][j][t] + psibar[mm][k])
+                #                               for mm in self.compartment_name.keys()
+                #               for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
+                #               if (k,t) in self.compartment_info[mm]['tocpm'][nn]['x'] ]) + alphabar
                 if types == 'stair':
                     if m == n:
-                        qhat = int(qhat1 * 1.0 / qhat2 /self.gap) * self.gap
+                        qhat = int(qhat * 1.0 / self.gap) * self.gap
                     else:
-                        qhat = int(qhat1 * 1.0 / qhat2 / self.gap + 1) * self.gap
-                else:
-                    qhat = qhat1 * 1.0 / qhat2
+                        qhat = int(qhat * 1.0 / self.gap + 1) * self.gap
+                # else:
+                #     qhat = qhat1
                 if m != n:
                     qhat = min(max(self.compartment_info[m]['tocpm'][n]['q_lb'][(j, t)], qhat),
                                self.compartment_info[m]['tocpm'][n]['q_ub'][(j, t)])
             else:
                 timemax = len(self.compartment_info[m]['tocpm'][n]['q_idp'][j]) - 1
                 qhat = self.compartment_info[m]['tocpm'][n]['q_idp'][j][min(t,timemax)]
-
             return qhat
         else:
             return 0
 
     def DeterPrediction2(self, types=None, randomq=None):
         '''Deterministic Epidemiological Prediction Model'''
+        # population.insert(0,[sum([self.population[n][j] for n in range(self.compartment)]) for j in range(self.group)])
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys())+1)]
         randomp = None
@@ -4160,16 +4461,22 @@ class REALM():
         else:
             return X, x, qhat
 
+
     def DeterPrediction(self, types=None, randomq=None):
         '''Deterministic Epidemiological Prediction Model'''
         # population.insert(0,[sum([self.population[n][j] for n in range(self.compartment)]) for j in range(self.group)])
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys())+1)]
-        Xdagger = [[[0 for t in range(self.Time)] for j in range(self.group)]
-             for n in range(max(self.compartment_name.keys())+1)]
-        randomp = None
+        # for (n,m) in [(0,1)]:
+        #     print('###',n,m,0,self.compartment_info[n]['tocpm'][m]['q_dp'][(0, 35)][1])
+        #     print()
+        # Xdagger = [[[0 for t in range(self.Time)] for j in range(self.group)]
+        #      for n in range(max(self.compartment_name.keys())+1)]
+        # randomp = None
         if self.x != None:
             x = copy.deepcopy(self.x)
+            x = [[[[max(x[n][m][j][t],0) for t in range(len(x[n][m][j]))]
+                               for j in range(len(x[n][m]))] for m in range(len(x[n]))] for n in range(len(x))]
         else:
             x = [[[[0 for t in range(self.Time)] for j in range(self.group)]
                   for m in range(max(self.compartment_name.keys())+1)]
@@ -4177,10 +4484,10 @@ class REALM():
         qhat = [[[[0 for t in range(self.Time)] for j in range(self.group)]
               for m in range(max(self.compartment_name.keys())+1)]
              for n in range(max(self.compartment_name.keys())+1)]
-        phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
-             for n in range(max(self.compartment_name.keys())+1)]
+        phat = [[[[1 if k==j else 0 for t in range(self.Time)] for k in range(self.group)]
+                 for j in range(self.group)] for n in range(max(self.compartment_name.keys())+1)]
 
-
+        # st = time.clock()
         for n in self.compartment_name.keys():
             for j in range(self.group):
                 X[n][j][0] = self.compartment_info[n]['local']['population'][j]
@@ -4188,32 +4495,50 @@ class REALM():
         for t in range(self.Time - 1):
             for m in self.compartment_name.keys():
                 for k in range(self.group):
-                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t]:
+                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t] \
+                            and sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > 0:
                         tempx = sum([x[m][mm][k][t] for mm in self.compartment_name.keys()])
                         for mm in self.compartment_name.keys():
                             x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / tempx
 
-            if randomp == None:
-                for n in self.compartment_name.keys():
-                    for j in range(self.group):
-                        for k in range(self.group):
-                            phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x, types=types)
-            else:
-                for n in self.compartment_name.keys():
-                    for j in range(self.group):
-                        for k in range(self.group):
-                            phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x, types=types) * randomp[n]
-                        ptotal = max(1, sum([phat[n][j][k][t] for k in range(self.group) if j != k]))
-                        for k in range(self.group):
-                            if j != k:
-                                phat[n][j][k][t] = phat[n][j][k][t] / ptotal
-                        phat[n][j][j][t] = 1 - sum([phat[n][j][kk][t] for kk in range(self.group) if j != kk])
+            # print(time.clock()-st)
+            # if randomp == None:
+            #     for n in self.compartment_name.keys():
+            #         for j in range(self.group):
+            #             for k in range(self.group):
+            #                 phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x, types=types)
+            #             print(n, j, t, phat[n][j][j][t])
+            # else:
+            #     for n in self.compartment_name.keys():
+            #         for j in range(self.group):
+            #             for k in range(self.group):
+            #                 phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x, types=types) * randomp[n]
+            #             ptotal = max(1, sum([phat[n][j][k][t] for k in range(self.group) if j != k]))
+            #             for k in range(self.group):
+            #                 if j != k:
+            #                     phat[n][j][k][t] = phat[n][j][k][t] / ptotal
+            #             phat[n][j][j][t] = 1 - sum([phat[n][j][kk][t] for kk in range(self.group) if j != kk])
             if randomq == None:
                 for j in range(self.group):
                     for n in self.compartment_name.keys():
                         for m in self.compartment_info[n]['tocpm'].keys():
-                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat, types=types)
+                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None, types=types)
+                            # try:
+                            #     gamma = self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][1]
+                            #     # phi = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][2]
+                            #     psi = self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][3]
+                            #     print(n,m,j,t, qhat[n][m][j][t], sum([X[mm][k][t] * gamma[mm][k]
+                            #                                           for mm in self.compartment_name.keys() for k in
+                            #                range(self.group)]),
+                            #           sum([x[mm][nn][k][t] * psi[mm][k] for mm in self.compartment_name.keys()
+                            #                for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
+                            #                if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']],
+                            #         self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][4])
+                            #           )
+                            # except:
+                            #     print(n,m,j,t, qhat[n][m][j][t])
                         qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
+
                         if qhat_fromn > 1:
                             qhat_fromn_dp = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
                                                  if self.compartment_info[n]['tocpm'][m]['q_dp'] != {}])
@@ -4221,13 +4546,36 @@ class REALM():
                             for m in self.compartment_info[n]['tocpm'].keys():
                                 if self.compartment_info[n]['tocpm'][m]['q_dp'] != {}:
                                     qhat[n][m][j][t] = qhat[n][m][j][t] * max(0, 1 - qhat_fromn_idp) / qhat_fromn_dp
+                                    print('haha')
+                        # elif qhat_fromn < 0:
+                        #     print('hahaha')
+                        #     gamma = self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][1]
+                        #     # phi = self.compartment_info[m]['tocpm'][n]['q_dp'][(j, t)][2]
+                        #     psi = self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][3]
+                        #     print(sum([X[mm][k][t] * gamma[mm][k] for mm in self.compartment_name.keys() for k in
+                        #                range(self.group)]),
+                        #           sum([x[mm][nn][k][t] * psi[mm][k] for mm in self.compartment_name.keys()
+                        #                for nn in self.compartment_info[mm]['tocpm'].keys() for k in range(self.group)
+                        #                if (k, t) in self.compartment_info[mm]['tocpm'][nn]['x']])
+                        #           )
                         qhat[n][n][j][t] = 1 - sum([qhat[n][mm][j][t] for mm in self.compartment_info[n]['tocpm'].keys()
                                                     if n != mm])
+                        # if qhat[n][n][j][t]>1:
+                        #     print(n,j,t, qhat[n][n][j][t], [(n,mm,qhat[n][mm][j][t]) for mm in self.compartment_info[n]['tocpm'].keys()
+                        #                             if n != mm])
+                        #     for m in self.compartment_info[n]['tocpm'].keys():
+                        #         if self.compartment_info[n]['tocpm'][m]['q_dp'] != {}:
+                        #             gamma = self.compartment_info[n]['tocpm'][m]['q_dp'][(j, t)][1]
+                        #             print(n, m, qhat[n][m][j][t])
+                        #             for mm in self.compartment_name.keys():
+                        #                 print(mm, [(X[mm][k][t], gamma[mm][k]) for k in range(self.group)])
+                        #             print()
+                        #     print()
             else:
                 for j in range(self.group):
                     for n in self.compartment_name.keys():
                         for m in self.compartment_info[n]['tocpm'].keys():
-                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat, types=types) \
+                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None, types=types) \
                                                * randomq[n][m]
                         qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
                         if qhat_fromn > 1:
@@ -4246,16 +4594,171 @@ class REALM():
                         qhat[n][n][j][t] = 1 - sum([qhat[n][mm][j][t]
                                 for mm in self.compartment_info[n]['tocpm'].keys() if n != mm])
 
+                        # print('R',n,j,t, qhat[n][n][j][t], sum([qhat[n][mm][j][t] for mm in self.compartment_info[n]['tocpm'].keys()
+                        #                             if n != mm]))
+
             for n in self.compartment_name.keys():
                 for j in range(self.group):
+                    # if max([qhat[m][n][j][t] for m in self.compartment_name.keys()]) > 1:
+                    #     print('D',n,j,t,[qhat[m][n][j][t] for m in self.compartment_name.keys()])
                     X[n][j][t + 1] = sum([min(X[m][j][t], x[m][n][j][t]) for m in self.compartment_name.keys()]) \
-                                     + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
-                                            qhat[m][n][j][t] * phat[m][k][j][t]
-                                            for m in self.compartment_name.keys() for k in range(self.group)])
+                                     + sum([max(X[m][j][t] - sum([x[m][mm][j][t]
+                                                                  for mm in self.compartment_name.keys()]), 0) *
+                                            qhat[m][n][j][t] for m in self.compartment_name.keys()])
+                    # if X[n][j][t + 1] < 0:
+                    #     print(n,j,t+1, X[n][j][t + 1])
+                    #     print(sum([min(X[m][j][t], x[m][n][j][t]) for m in self.compartment_name.keys()]),
+                    #           [(X[m][j][t], x[m][n][j][t]) for m in self.compartment_name.keys()])
+                    #     print(sum([max(X[m][j][t] - sum([x[m][mm][j][t] for mm in self.compartment_name.keys()]), 0) *
+                    #                         qhat[m][n][j][t] for m in self.compartment_name.keys()]),
+                    #           [max(X[m][j][t] - sum([x[m][mm][j][t]
+                    #             for mm in self.compartment_name.keys()]), 0) *
+                    #                         qhat[m][n][j][t] for m in self.compartment_name.keys()])
+                    #     print()
+                    # X[n][j][t + 1] = sum([min(X[m][j][t], x[m][n][j][t]) for m in self.compartment_name.keys()]) \
+                    #                  + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
+                    #                         qhat[m][n][j][t] * phat[m][k][j][t]
+                    #                         for m in self.compartment_name.keys() for k in range(self.group)])
+        # print(time.clock()-st)
         if types == 'stair':
             return X, phat, qhat
         else:
             return X, x, qhat
+
+
+    # def __getstate__(self):
+    #     self_dict = self.__dict__.copy()
+    #     del self_dict['pool']
+    #     return self_dict
+    # def __setstate__(self, state):
+    #     self.__dict__.update(state)
+
+    # def run(self, data):
+    #     return [self.pool.apply(self.DeterPrediction3, args=row) for row in data]
+
+    @staticmethod
+    def DeterPrediction3(user, randomq=None):
+        '''Deterministic Epidemiological Prediction Model'''
+        Time = user.Time
+        group = user.group
+        N = user.compartment_name.keys()
+        NN = user.compartment_info
+        if user.x != None:
+            x = copy.deepcopy(user.x)
+        else:
+            x = [[[[0 for t in range(Time)] for j in range(group)]
+                  for m in range(max(N)+1)] for n in range(max(N)+1)]
+        print(Time, N, group)
+        X = [[[0 for t in range(Time)] for j in range(group)] for n in range(max(N)+1)]
+
+        # Xdagger = [[[0 for t in range(Time)] for j in range(group)]
+        #      for n in range(max(self.compartment_name.keys())+1)]
+        # randomp = None
+        qhat = [[[[0 for t in range(Time)] for j in range(group)]
+              for m in range(max(N)+1)] for n in range(max(N)+1)]
+
+        # st = time.clock()
+        for n in N:
+            for j in range(group):
+                X[n][j][0] = NN[n]['local']['population'][j]
+
+        for t in range(Time - 1):
+            for m in N:
+                for k in range(group):
+                    if sum([x[m][mm][k][t] for mm in N]) > X[m][k][t] \
+                            and sum([x[m][mm][k][t] for mm in N]) > 0:
+                        tempx = sum([x[m][mm][k][t] for mm in N])
+                        for mm in N:
+                            x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / tempx
+
+            if randomq == None:
+                for j in range(group):
+                    for n in N:
+                        for m in NN[n]['tocpm'].keys():
+                            if NN[n]['tocpm'][m]['q_dp'] != {}:
+                                temp = list(NN[n]['tocpm'][m]['q_norm'].keys())
+                                timemax = max([temp[i][1] for i in range(len(temp)) if temp[i][0] == j])
+                                t = min(t, timemax)
+                                gamma = NN[n]['tocpm'][m]['q_dp'][(j, t)][1]
+                                psi = NN[n]['tocpm'][m]['q_dp'][(j, t)][3]
+                                alpha = NN[n]['tocpm'][m]['q_dp'][(j, t)][4]
+
+                                qhat[n][m][j][t] = sum(
+                                    [X[mm][k][t] * gamma[mm][k] for mm in N for k
+                                     in range(group)]) \
+                                       + sum(
+                                    [x[mm][nn][k][t] * psi[mm][k] for mm in N
+                                     for nn in NN[mm]['tocpm'].keys() for k in range(group)
+                                     if (k, t) in NN[mm]['tocpm'][nn]['x']]) + alpha
+                                if m != n:
+                                    qhat[n][m][j][t] = min(max(NN[n]['tocpm'][m]['q_lb'][(j, t)], qhat),
+                                               NN[n]['tocpm'][m]['q_ub'][(j, t)])
+                            else:
+                                timemax = len(NN[n]['tocpm'][m]['q_idp'][j]) - 1
+                                qhat[n][m][j][t] = NN[n]['tocpm'][m]['q_idp'][j][min(t, timemax)]
+
+
+                        qhat_fromn = sum([qhat[n][m][j][t] for m in NN[n]['tocpm'].keys() if m != n])
+                        if qhat_fromn > 1:
+                            qhat_fromn_dp = sum([qhat[n][m][j][t] for m in NN[n]['tocpm'].keys()
+                                                 if NN[n]['tocpm'][m]['q_dp'] != {}])
+                            qhat_fromn_idp = qhat_fromn - qhat_fromn_dp
+                            for m in NN[n]['tocpm'].keys():
+                                if NN[n]['tocpm'][m]['q_dp'] != {}:
+                                    qhat[n][m][j][t] = qhat[n][m][j][t] * max(0, 1 - qhat_fromn_idp) / qhat_fromn_dp
+                        qhat[n][n][j][t] = 1 - sum([qhat[n][mm][j][t] for mm in NN[n]['tocpm'].keys()
+                                                    if n != mm])
+            else:
+                for j in range(group):
+                    for n in N:
+                        for m in NN[n]['tocpm'].keys():
+                            if NN[n]['tocpm'][m]['q_dp'] != {}:
+                                temp = list(NN[n]['tocpm'][m]['q_norm'].keys())
+                                timemax = max([temp[i][1] for i in range(len(temp)) if temp[i][0] == j])
+                                t = min(t, timemax)
+                                gamma = NN[n]['tocpm'][m]['q_dp'][(j, t)][1]
+                                psi = NN[n]['tocpm'][m]['q_dp'][(j, t)][3]
+                                alpha = NN[n]['tocpm'][m]['q_dp'][(j, t)][4]
+
+                                qhat[n][m][j][t] = sum(
+                                    [X[mm][k][t] * gamma[mm][k] for mm in N for k
+                                     in range(group)]) \
+                                       + sum(
+                                    [x[mm][nn][k][t] * psi[mm][k] for mm in N
+                                     for nn in NN[mm]['tocpm'].keys() for k in range(group)
+                                     if (k, t) in NN[mm]['tocpm'][nn]['x']]) + alpha
+                                if m != n:
+                                    qhat[n][m][j][t] = min(max(NN[n]['tocpm'][m]['q_lb'][(j, t)], qhat),
+                                               NN[n]['tocpm'][m]['q_ub'][(j, t)])
+                            else:
+                                timemax = len(NN[n]['tocpm'][m]['q_idp'][j]) - 1
+                                qhat[n][m][j][t] = NN[n]['tocpm'][m]['q_idp'][j][min(t, timemax)]
+                            qhat[n][m][j][t] = qhat[n][m][j][t] * randomq[n][m]
+                        qhat_fromn = sum([qhat[n][m][j][t] for m in NN[n]['tocpm'].keys() if m != n])
+                        if qhat_fromn > 1:
+                            qhat_fromn_dp = sum([qhat[n][m][j][t] for m in NN[n]['tocpm'].keys()
+                                                  if NN[n]['tocpm'][m]['q_dp'] != {}])
+                            qhat_fromn_idp = qhat_fromn - qhat_fromn_dp
+                            for m in NN[n]['tocpm'].keys():
+                                if NN[n]['tocpm'][m]['q_dp'] != {}:
+                                    qhat[n][m][j][t] = qhat[n][m][j][t] * max(0, 1-qhat_fromn_idp) / qhat_fromn_dp
+
+                        qtotal = max(1, sum([qhat[n][m][j][t] * randomq[n][m]
+                                        for m in NN[n]['tocpm'].keys() if n!=m]))
+                        for m in NN[n]['tocpm'].keys():
+                            if n != m:
+                                qhat[n][m][j][t] = qhat[n][m][j][t] / qtotal
+                        qhat[n][n][j][t] = 1 - sum([qhat[n][mm][j][t]
+                                for mm in NN[n]['tocpm'].keys() if n != mm])
+
+            for n in N:
+                for j in range(group):
+                    X[n][j][t + 1] = sum([min(X[m][j][t], x[m][n][j][t]) for m in N]) \
+                                     + sum([max(X[m][j][t] - sum([x[m][mm][j][t]
+                                                                  for mm in N]), 0) *
+                                            qhat[m][n][j][t] for m in N])
+
+        return X
 
     def Sample_generation(self, n=None, m=None, lb=1, ub=2, size=1000):
         if isinstance(n, str) and isinstance(lb, (int, float)):
@@ -4278,11 +4781,17 @@ class REALM():
 
     def StochaPrediction(self, randomq=None):
         '''Stochastic Epidemiological Prediction Model'''
+        # population.insert(0,[sum([self.population[n][j] for n in range(self.compartment)]) for j in range(self.group)])
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
         randomp = None
+        # Y = [[[0 for t in range(self.Time)] for j in range(self.group)]
+        #      for n in range(max(self.compartment_name.keys()) + 1)]
+        # Z = [[0 for t in range(self.Time)] for n in range(max(self.compartment_name.keys()) + 1)]
         if self.x != None:
             x = copy.deepcopy(self.x)
+            x = [[[[max(x[n][m][j][t],0) for t in range(len(x[n][m][j]))]
+                               for j in range(len(x[n][m]))] for m in range(len(x[n]))] for n in range(len(x))]
         else:
             x = [[[[0 for t in range(self.Time)] for j in range(self.group)]
                   for m in range(max(self.compartment_name.keys())+1)]
@@ -4291,17 +4800,24 @@ class REALM():
         qhat = [[[[0 for t in range(self.Time)] for j in range(self.group)]
                  for m in range(max(self.compartment_name.keys()) + 1)]
                 for n in range(max(self.compartment_name.keys()) + 1)]
-        phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
-                    for n in range(max(self.compartment_name.keys()) + 1)]
+        # phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
+        #             for n in range(max(self.compartment_name.keys()) + 1)]
         population = [self.compartment_info[n]['local']['population'] if n in self.compartment_name.keys() else []
                       for n in range(max(self.compartment_name.keys()) + 1)]
 
         for n in self.compartment_name.keys():
+            # Z[n][0] = sum([self.compartment_info[n]['local']['population'][j] for j in range(self.group)])
             for j in range(self.group):
                 X[n][j][0] = self.compartment_info[n]['local']['population'][j]
+                # Y[n][j][0] = self.compartment_info[n]['local']['population'][j]
 
+        # if max([sum(population[n]) for n in range(max(self.compartment_name.keys()) + 1)]) < 10000:
         X = [[[X[n][j][t] * 1000 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
+        # Y = [[[Y[n][j][t] * 1000 for t in range(self.Time)] for j in range(self.group)]
+        #      for n in range(max(self.compartment_name.keys()) + 1)]
+        # Z = [[Z[n][t] * 1000 for t in range(self.Time)]
+        #      for n in range(max(self.compartment_name.keys()) + 1)]
         x = [[[[x[n][m][j][t]*1000 for t in range(self.Time)] for j in range(self.group)]
               for m in range(max(self.compartment_name.keys()) + 1)]
              for n in range(max(self.compartment_name.keys()) + 1)]
@@ -4310,33 +4826,35 @@ class REALM():
 
             for m in self.compartment_name.keys():
                 for k in range(self.group):
-                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t]:
+                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t] \
+                            and sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > 0:
+                        temp = sum([x[m][mm][k][t] for mm in self.compartment_name.keys()])
                         for mm in self.compartment_name.keys():
-                            x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / \
-                                             sum([x[m][mm][k][t] for mm in self.compartment_name.keys()])
+                            x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / temp
 
-            if randomp == None:
-                for n in self.compartment_name.keys():
-                    for j in range(self.group):
-                        for k in range(self.group):
-                            phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
-            else:
-                for n in self.compartment_name.keys():
-                    for j in range(self.group):
-                        for k in range(self.group):
-                            phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x) * randomp[n]
-                        ptotal = max(1, sum([phat[n][j][k][t] for k in range(self.group) if j != k]))
-                        for k in range(self.group):
-                            if j != k:
-                                phat[n][j][k][t] = phat[n][j][k][t] / ptotal
-                        phat[n][j][j][t] = 1 - sum([phat[n][j][kk][t] for kk in range(self.group) if j != kk])
+            # if randomp == None:
+            #     for n in self.compartment_name.keys():
+            #         for j in range(self.group):
+            #             for k in range(self.group):
+            #                 phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
+            # else:
+            #     for n in self.compartment_name.keys():
+            #         for j in range(self.group):
+            #             for k in range(self.group):
+            #                 phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x) * randomp[n]
+            #             ptotal = max(1, sum([phat[n][j][k][t] for k in range(self.group) if j != k]))
+            #             for k in range(self.group):
+            #                 if j != k:
+            #                     phat[n][j][k][t] = phat[n][j][k][t] / ptotal
+            #             phat[n][j][j][t] = 1 - sum([phat[n][j][kk][t] for kk in range(self.group) if j != kk])
 
             if randomq == None:
                 for j in range(self.group):
                     for n in self.compartment_name.keys():
                         for m in self.compartment_info[n]['tocpm'].keys():
-                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat, scale=1000)
-                        qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
+                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None, scale=1000)
+                        qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
+                                          if m != n])
                         if qhat_fromn > 1:
                             qhat_fromn_dp = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
                                                  if self.compartment_info[n]['tocpm'][m]['q_dp'] != {}])
@@ -4350,9 +4868,10 @@ class REALM():
                 for j in range(self.group):
                     for n in self.compartment_name.keys():
                         for m in self.compartment_info[n]['tocpm'].keys():
-                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat, scale=1000) \
+                            qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None, scale=1000) \
                                                * randomq[n][m]
-                        qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
+                        qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
+                                          if m != n])
                         if qhat_fromn > 1:
                             qhat_fromn_dp = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
                                                  if self.compartment_info[n]['tocpm'][m]['q_dp'] != {}])
@@ -4370,10 +4889,16 @@ class REALM():
 
             for n in self.compartment_name.keys():
                 for j in range(self.group):
+                    # if max([qhat[m][n][j][t] for m in self.compartment_name.keys()]):
+                    #     print('S',n,j,t,[qhat[m][n][j][t] for m in self.compartment_name.keys()])
                     X[n][j][t + 1] = sum([min(X[m][j][t],x[m][n][j][t]) for m in self.compartment_name.keys()]) \
-                                     + sum([numpy.random.binomial(max(X[m][k][t] - sum([x[m][mm][k][t]
-                                        for mm in self.compartment_name.keys()]), 0), qhat[m][n][j][t] * phat[m][k][j][t])
-                                    for m in self.compartment_name.keys() for k in range(self.group)])
+                                     + sum([numpy.random.binomial(max(X[m][j][t] - sum([x[m][mm][j][t]
+                                        for mm in self.compartment_name.keys()]), 0), qhat[m][n][j][t])
+                                    for m in self.compartment_name.keys()])
+                    # X[n][j][t + 1] = sum([min(X[m][j][t],x[m][n][j][t]) for m in self.compartment_name.keys()]) \
+                    #                  + sum([numpy.random.binomial(max(X[m][k][t] - sum([x[m][mm][k][t]
+                    #                     for mm in self.compartment_name.keys()]), 0), qhat[m][n][j][t] * phat[m][k][j][t])
+                    #                 for m in self.compartment_name.keys() for k in range(self.group)])
         X = [[[X[n][j][t] / 1000.0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
 
@@ -4386,11 +4911,13 @@ class REALM():
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
         x = copy.deepcopy(self.x)
+        x = [[[[max(x[n][m][j][t],0) for t in range(len(x[n][m][j]))]
+                           for j in range(len(x[n][m]))] for m in range(len(x[n]))] for n in range(len(x))]
         qhat = [[[[0 for t in range(self.Time)] for j in range(self.group)]
                  for m in range(max(self.compartment_name.keys()) + 1)]
                 for n in range(max(self.compartment_name.keys()) + 1)]
-        phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
-                    for n in range(max(self.compartment_name.keys()) + 1)]
+        # phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
+        #             for n in range(max(self.compartment_name.keys()) + 1)]
 
         for n in self.compartment_name.keys():
             for j in range(self.group):
@@ -4400,20 +4927,21 @@ class REALM():
 
             for m in self.compartment_name.keys():
                 for k in range(self.group):
-                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t]:
+                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t] \
+                            and sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > 0:
                         for mm in self.compartment_name.keys():
                             x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / \
                                              sum([x[m][mm][k][t] for mm in self.compartment_name.keys()])
 
-            for n in self.compartment_name.keys():
-                for j in range(self.group):
-                    for k in range(self.group):
-                        phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
+            # for n in self.compartment_name.keys():
+            #     for j in range(self.group):
+            #         for k in range(self.group):
+            #             phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
 
             for j in range(self.group):
                 for n in self.compartment_name.keys():
                     for m in self.compartment_info[n]['tocpm'].keys():
-                        qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat)
+                        qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None)
                     qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
                     if qhat_fromn > 1:
                         qhat_fromn_dp = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
@@ -4428,17 +4956,24 @@ class REALM():
             for n in self.compartment_name.keys():
                 for j in range(self.group):
                     X[n][j][t + 1] = sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
-                                     + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
-                         qhat[m][n][j][t] * phat[m][k][j][t]
-                         for m in self.compartment_name.keys() for k in range(self.group)])
+                                     + sum([max(X[m][j][t] - sum([x[m][mm][j][t] for mm in self.compartment_name.keys()]), 0) *
+                         qhat[m][n][j][t] for m in self.compartment_name.keys()])
+                    # X[n][j][t + 1] = sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
+                    #                  + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
+                    #      qhat[m][n][j][t] * phat[m][k][j][t]
+                    #      for m in self.compartment_name.keys() for k in range(self.group)])
 
             for n in self.compartment_name.keys():
                 for j in range(self.group):
                     muupper[n][j][t + 1] = coef * sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
-                                           + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0)
-                                                  * theta * log(
-                        1 - qhat[m][n][j][t] * phat[m][k][j][t] + qhat[m][n][j][t] * phat[m][k][j][t] * exp(
-                            coef * 1.0 / theta)) for m in self.compartment_name.keys() for k in range(self.group)])
+                                           + sum([max(X[m][j][t] - sum([x[m][mm][j][t] for mm in self.compartment_name.keys()]), 0)
+                                                  * theta * log(1 - qhat[m][n][j][t] + qhat[m][n][j][t] * exp(
+                            coef * 1.0 / theta)) for m in self.compartment_name.keys()])
+                    # muupper[n][j][t + 1] = coef * sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
+                    #                        + sum([max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0)
+                    #                               * theta * log(
+                    #     1 - qhat[m][n][j][t] * phat[m][k][j][t] + qhat[m][n][j][t] * phat[m][k][j][t] * exp(
+                    #         coef * 1.0 / theta)) for m in self.compartment_name.keys() for k in range(self.group)])
         return muupper
 
     def RobustPrediction_get_lowerbound(self, theta=10, coef=1):
@@ -4448,11 +4983,13 @@ class REALM():
         X = [[[0 for t in range(self.Time)] for j in range(self.group)]
              for n in range(max(self.compartment_name.keys()) + 1)]
         x = copy.deepcopy(self.x)
+        x = [[[[max(x[n][m][j][t],0) for t in range(len(x[n][m][j]))]
+                           for j in range(len(x[n][m]))] for m in range(len(x[n]))] for n in range(len(x))]
         qhat = [[[[0 for t in range(self.Time)] for j in range(self.group)]
                  for m in range(max(self.compartment_name.keys()) + 1)]
                 for n in range(max(self.compartment_name.keys()) + 1)]
-        phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
-                    for n in range(max(self.compartment_name.keys()) + 1)]
+        # phat = [[[[0 for t in range(self.Time)] for k in range(self.group)] for j in range(self.group)]
+        #             for n in range(max(self.compartment_name.keys()) + 1)]
 
         for n in self.compartment_name.keys():
             for j in range(self.group):
@@ -4463,20 +5000,21 @@ class REALM():
 
             for m in self.compartment_name.keys():
                 for k in range(self.group):
-                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t]:
+                    if sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > X[m][k][t] \
+                            and sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]) > 0:
                         for mm in self.compartment_name.keys():
                             x[m][mm][k][t] = x[m][mm][k][t] * X[m][k][t] / \
                                              sum([x[m][mm][k][t] for mm in self.compartment_name.keys()])
 
-            for n in self.compartment_name.keys():
-                for j in range(self.group):
-                    for k in range(self.group):
-                        phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
+            # for n in self.compartment_name.keys():
+            #     for j in range(self.group):
+            #         for k in range(self.group):
+            #             phat[n][j][k][t] = self.functionp(state=(n, j, k, t), X=X, x=x)
 
             for j in range(self.group):
                 for n in self.compartment_name.keys():
                     for m in self.compartment_info[n]['tocpm'].keys():
-                        qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=phat)
+                        qhat[n][m][j][t] = self.functionq(state=(n, m, j, t), X=X, x=x, phat=None)
                     qhat_fromn = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys() if m != n])
                     if qhat_fromn > 1:
                         qhat_fromn_dp = sum([qhat[n][m][j][t] for m in self.compartment_info[n]['tocpm'].keys()
@@ -4492,17 +5030,28 @@ class REALM():
                 for j in range(self.group):
                     X[n][j][t + 1] = sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
                                      + sum(
-                        [max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
-                         qhat[m][n][j][t] * phat[m][k][j][t]
-                         for m in self.compartment_name.keys() for k in range(self.group)])
+                        [max(X[m][j][t] - sum([x[m][mm][j][t] for mm in self.compartment_name.keys()]), 0) *
+                         qhat[m][n][j][t]
+                         for m in self.compartment_name.keys()])
+                    # X[n][j][t + 1] = sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
+                    #                  + sum(
+                    #     [max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0) *
+                    #      qhat[m][n][j][t] * phat[m][k][j][t]
+                    #      for m in self.compartment_name.keys() for k in range(self.group)])
             for n in self.compartment_name.keys():
                 for j in range(self.group):
                     mulower[n][j][t + 1] = coef * sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
                                            - sum(
-                        [max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0)
+                        [max(X[m][j][t] - sum([x[m][mm][j][t] for mm in self.compartment_name.keys()]), 0)
                          * theta * log(
-                            1 - qhat[m][n][j][t] * phat[m][k][j][t] + qhat[m][n][j][t] * phat[m][k][j][t] * exp(
+                            1 - qhat[m][n][j][t] + qhat[m][n][j][t] * exp(
                                 -coef * 1.0 / theta)) for m in self.compartment_name.keys() for k in range(self.group)])
+                    # mulower[n][j][t + 1] = coef * sum([x[m][n][j][t] for m in self.compartment_name.keys()]) \
+                    #                        - sum(
+                    #     [max(X[m][k][t] - sum([x[m][mm][k][t] for mm in self.compartment_name.keys()]), 0)
+                    #      * theta * log(
+                    #         1 - qhat[m][n][j][t] * phat[m][k][j][t] + qhat[m][n][j][t] * phat[m][k][j][t] * exp(
+                    #             -coef * 1.0 / theta)) for m in self.compartment_name.keys() for k in range(self.group)])
         return mulower
 
     def Prediction(self, opt:list):
@@ -4548,87 +5097,236 @@ class REALM():
             os.remove(filename+'.xlsx')
         except:
             pass
-        outwb = openpyxl.Workbook()
+
+        outwb = xlwt.Workbook(encoding='utf-8',style_compression=0)
         if compartment != None:
-            outws = outwb.create_sheet('Simulated compartment')
+            outws = outwb.add_sheet('Simulated compartment', cell_overwrite_ok=True)
             head = ['Sample no.', 'Compartment name', 'Group'] \
                    + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
-            for i in range(len(head)):
-                outws.cell(row=1, column=1+i).value = head[i]
+            for j in range(len(head)):
+                outws.write(0, j, head[j])
             p = 0
             for i in range(len(compartment)):
                 for n in range(len(compartment[i])):
                     for j in range(len(compartment[i][n])):
-                        outws.cell(row=2 + p, column=1).value = i + 1
-                        outws.cell(row=2 + p, column=2).value = self.compartment_name[n]
-                        outws.cell(row=2 + p, column=3).value = j
+                        outws.write(1 + p, 0, i + 1)
+                        outws.write(1 + p, 1, self.compartment_name[n])
+                        outws.write(1 + p, 2, j)
                         for t in range(len(compartment[i][n][j])):
-                            outws.cell(row=2 + p, column=4 + t).value = compartment[i][n][j][t]
+                            outws.write(1 + p, 3 + t, compartment[i][n][j][t])
                         p += 1
-            outws2 = outwb.create_sheet('Simulated compartment (total)')
+            outws2 = outwb.add_sheet('Simulated compartment (total)', cell_overwrite_ok=True)  # 在将写的文件创建sheet
             head = ['Sample no.', 'Compartment name'] \
                    + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
-            for i in range(len(head)):
-                outws2.cell(row=1, column=1+i).value=head[i]
+            for j in range(len(head)):
+                outws2.write(0, j, head[j])
             p = 0
             for i in range(len(compartment)):
                 for n in range(len(self.compartment_name)):
-                    outws2.cell(row=2 + p, column=1).value = i+1
-                    outws2.cell(row=2 + p, column=2).value = self.compartment_name[n]
+                    outws2.write(1 + p, 0, i + 1)
+                    outws2.write(1 + p, 1, self.compartment_name[n])
                     for t in range(len(compartment[i][n][0])):
-                        outws2.cell(row=2 + p, column=3 + t).value = \
-                            sum([compartment[i][n][j][t] for j in range(len(compartment[i][n]))])
+                        outws2.write(1 + p, 2 + t,
+                                     sum([compartment[i][n][j][t] for j in range(len(compartment[i][n]))]) )
                     p += 1
             for n in range(len(self.compartment_name)):
-                outws2.cell(row=2 + p, column=1).value = 'avg'
-                outws2.cell(row=2 + p, column=2).value = self.compartment_name[n]
+                outws2.write(1 + p, 0, 'avg')
+                outws2.write(1 + p, 1, self.compartment_name[n])
                 for t in range(len(compartment[0][n][0])):
-                    outws2.cell(row=2 + p, column=3 + t).value = \
-                        sum([compartment[i][n][j][t] for i in range(len(compartment))
-                             for j in range(len(compartment[i][n]))])/ len(compartment)
+                    outws2.write(1 + p, 2 + t, sum([compartment[i][n][j][t] for i in range(len(compartment))
+                             for j in range(len(compartment[i][n]))])/ len(compartment))
                 p += 1
         if dvar != None:
-            outws3 = outwb.create_sheet('Varables')
+            outws3 = outwb.add_sheet('Varables', cell_overwrite_ok=True)
             head = ['Compartment (From)', 'Compartment (To)', 'Groups'] \
                    + ['T = ' + str(i) for i in range(len(dvar[0][0][0]))]
             for i in range(len(head)):
-                outws3.cell(row=1, column=1+i).value=head[i]
+                outws3.write(0, 0 + i, head[i])
             ii = 0
             for n in range(len(dvar)):
                 for m in range(len(dvar[n])):
                     if sum([dvar[n][m][j][t] for j in range(len(dvar[n][m])) for t in range(len(dvar[n][m][j]))]) != 0:
                         for j in range(len(dvar[n][m])):
-                            outws3.cell(row=2 + ii, column=1).value = self.compartment_name[n]
-                            outws3.cell(row=2 + ii, column=2).value = self.compartment_name[m]
-                            outws3.cell(row=2 + ii, column=3).value = j
+                            outws3.write(1 + ii, 0, self.compartment_name[n])
+                            outws3.write(1 + ii, 1, self.compartment_name[m])
+                            outws3.write(1 + ii, 2, j)
                             for t in range(len(dvar[n][m][j])):
-                                outws3.cell(row=2 + ii, column=4 + t).value = dvar[n][m][j][t]
+                                outws3.write(1 + ii, 3 + t, dvar[n][m][j][t])
                             ii += 1
         if lhs != None:
-            outws4 = outwb.create_sheet('LHS')
-            outws4.cell(row=1, column=1).value = 'Value of the LHS of constraints and the objective function'
-            outws4.cell(row=2, column=2).value = 'Obj/Constraint name'
-            outws4.cell(row=2, column=3).value = 'LHS (Simulation)'
+            outws4 = outwb.add_sheet('LHS', cell_overwrite_ok=True)
+            outws4.write(0, 0, 'Value of the LHS of constraints and the objective function')
+            outws4.write(1, 1, 'Obj/Constraint name')
+            outws4.write(1, 2, 'LHS (Simulation)')
             ii = 0
             for i in range(len(lhs)):
-                outws4.cell(row=3 + ii, column=1).value = lhs[i][0]
+                outws4.write(2 + ii, 0, lhs[i][0])
                 for s in range(len(lhs[i][1])):
-                    outws4.cell(row=3 + ii, column=2 + s).value = lhs[i][1][s]
+                    outws4.write(2 + ii, 1 + s, lhs[i][1][s])
                 ii += 1
 
         if custom != None:
-            outws5 = outwb.create_sheet('Customized varables')
+            outws5 = outwb.add_sheet('Customized varables', cell_overwrite_ok=True)
             head = ['Name', 'value']
             for i in range(len(head)):
-                outws5.cell(row=1, column=1 + i).value = head[i]
+                outws5.write(0, 0 + i, head[i])
             ii = 0
             for n in custom.keys():
-                outws5.cell(row=2 + ii, column=1).value = n
-                outws5.cell(row=2 + ii, column=2).value = custom[n]
+                outws5.write(1 + ii, 0, n)
+                outws5.write(1 + ii, 1, custom[n])
                 ii += 1
 
-        outwb.save(filename + '.xlsx')
-        outwb.close()
+        # outwb = openpyxl.Workbook()  # 打开一个将写的文件
+        # if compartment != None:
+        #     outws = outwb.create_sheet('Simulated compartment')  # 在将写的文件创建sheet
+        #     head = ['Sample no.', 'Compartment name', 'Group'] \
+        #            + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
+        #     for i in range(len(head)):
+        #         outws.cell(row=1, column=1+i).value = head[i]
+        #     p = 0
+        #     for i in range(len(compartment)):
+        #         for n in range(len(compartment[i])):
+        #             for j in range(len(compartment[i][n])):
+        #                 outws.cell(row=2 + p, column=1).value = i + 1
+        #                 outws.cell(row=2 + p, column=2).value = self.compartment_name[n]
+        #                 outws.cell(row=2 + p, column=3).value = j
+        #                 for t in range(len(compartment[i][n][j])):
+        #                     outws.cell(row=2 + p, column=4 + t).value = compartment[i][n][j][t]
+        #                 p += 1
+        #     outws2 = outwb.create_sheet('Simulated compartment (total)')  # 在将写的文件创建sheet
+        #     head = ['Sample no.', 'Compartment name'] \
+        #            + ['T = ' + str(i) for i in range(len(compartment[0][0][0]))]
+        #     for i in range(len(head)):
+        #         outws2.cell(row=1, column=1+i).value=head[i]
+        #     p = 0
+        #     for i in range(len(compartment)):
+        #         for n in range(len(self.compartment_name)):
+        #             outws2.cell(row=2 + p, column=1).value = i+1
+        #             outws2.cell(row=2 + p, column=2).value = self.compartment_name[n]
+        #             for t in range(len(compartment[i][n][0])):
+        #                 outws2.cell(row=2 + p, column=3 + t).value = \
+        #                     sum([compartment[i][n][j][t] for j in range(len(compartment[i][n]))])
+        #             p += 1
+        #     for n in range(len(self.compartment_name)):
+        #         outws2.cell(row=2 + p, column=1).value = 'avg'
+        #         outws2.cell(row=2 + p, column=2).value = self.compartment_name[n]
+        #         for t in range(len(compartment[0][n][0])):
+        #             outws2.cell(row=2 + p, column=3 + t).value = \
+        #                 sum([compartment[i][n][j][t] for i in range(len(compartment))
+        #                      for j in range(len(compartment[i][n]))])/ len(compartment)
+        #         p += 1
+        # if dvar != None:
+        #     outws3 = outwb.create_sheet('Varables')
+        #     head = ['Compartment (From)', 'Compartment (To)', 'Groups'] \
+        #            + ['T = ' + str(i) for i in range(len(dvar[0][0][0]))]
+        #     for i in range(len(head)):
+        #         outws3.cell(row=1, column=1+i).value=head[i]
+        #     ii = 0
+        #     for n in range(len(dvar)):
+        #         for m in range(len(dvar[n])):
+        #             if sum([dvar[n][m][j][t] for j in range(len(dvar[n][m])) for t in range(len(dvar[n][m][j]))]) != 0:
+        #                 for j in range(len(dvar[n][m])):
+        #                     outws3.cell(row=2 + ii, column=1).value = self.compartment_name[n]
+        #                     outws3.cell(row=2 + ii, column=2).value = self.compartment_name[m]
+        #                     outws3.cell(row=2 + ii, column=3).value = j
+        #                     for t in range(len(dvar[n][m][j])):
+        #                         outws3.cell(row=2 + ii, column=4 + t).value = dvar[n][m][j][t]
+        #                     ii += 1
+        # if lhs != None:
+        #     outws4 = outwb.create_sheet('LHS')
+        #     outws4.cell(row=1, column=1).value = 'Value of the LHS of constraints and the objective function'
+        #     outws4.cell(row=2, column=2).value = 'Obj/Constraint name'
+        #     outws4.cell(row=2, column=3).value = 'LHS (Simulation)'
+        #     ii = 0
+        #     for i in range(len(lhs)):
+        #         outws4.cell(row=3 + ii, column=1).value = lhs[i][0]
+        #         for s in range(len(lhs[i][1])):
+        #             outws4.cell(row=3 + ii, column=2 + s).value = lhs[i][1][s]
+        #         ii += 1
+        #
+        # if custom != None:
+        #     outws5 = outwb.create_sheet('Customized varables')
+        #     head = ['Name', 'value']
+        #     for i in range(len(head)):
+        #         outws5.cell(row=1, column=1 + i).value = head[i]
+        #     ii = 0
+        #     for n in custom.keys():
+        #         outws5.cell(row=2 + ii, column=1).value = n
+        #         outws5.cell(row=2 + ii, column=2).value = custom[n]
+        #         ii += 1
+
+        # workbook = xlwt.Workbook(encoding='utf-8')
+        # if compartment != None:
+        #     worksheet1 = workbook.add_sheet('Simulated compartment')
+        #     worksheet1.write(0, 0, 'Compartment')
+        #     worksheet1.write(1, 0, 'Sample no.')
+        #     worksheet1.write(1, 1, 'Compartment name')
+        #     worksheet1.write(1, 2, 'Group')
+        #     worksheet1.write(1, 3, 'Time Sequence')
+        #     p = 0
+        #     for i in range(len(compartment)):
+        #         for n in range(len(compartment[i])):
+        #             for j in range(len(compartment[i][n])):
+        #                 worksheet1.write(2 + p, 0, i+1)
+        #                 worksheet1.write(2 + p, 1, self.compartment_name[n])
+        #                 worksheet1.write(2 + p, 2, j)
+        #                 for t in range(len(compartment[i][n][j])):
+        #                     worksheet1.write(2 + p, 3 + t, compartment[i][n][j][t])
+        #                 p += 1
+        #     worksheet2 = workbook.add_sheet('Simulated compartment (total)')
+        #     worksheet2.write(0, 0, 'Compartment')
+        #     worksheet2.write(1, 0, 'Sample no.')
+        #     worksheet2.write(1, 1, 'Compartment name')
+        #     worksheet2.write(1, 2, 'Time Sequence')
+        #     p = 0
+        #     for i in range(len(compartment)):
+        #         for n in range(len(self.compartment_name)):
+        #             worksheet2.write(2 + p, 0, i+1)
+        #             worksheet2.write(2 + p, 1, self.compartment_name[n])
+        #             for t in range(self.Time):
+        #                 worksheet2.write(2 + p, 2 + t, sum([compartment[i][n][j][t] for j in range(len(compartment[i][n]))]))
+        #             p += 1
+        #     for n in range(len(self.compartment_name)):
+        #         worksheet2.write(2 + p, 0, 'avg')
+        #         worksheet2.write(2 + p, 1, self.compartment_name[n])
+        #         for t in range(self.Time):
+        #             worksheet2.write(2 + p, 2 + t,
+        #                              sum([compartment[i][n][j][t] for i in range(len(compartment))
+        #                                   for j in range(len(compartment[i][n]))])/ len(compartment) )
+        #         p += 1
+        # if dvar != None:
+        #     worksheet4 = workbook.add_sheet('Varables')
+        #     worksheet4.write(0, 0, 'Variables')
+        #     worksheet4.write(1, 0, 'Compartment (From)')
+        #     worksheet4.write(1, 1, 'Compartment (To)')
+        #     worksheet4.write(1, 2, 'Groups')
+        #     worksheet4.write(1, 3, 'Time Sequence')
+        #     ii = 0
+        #     for n in range(len(dvar)):
+        #         for m in range(len(dvar[n])):
+        #             if sum([dvar[n][m][j][t] for j in range(len(dvar[n][m])) for t in range(len(dvar[n][m][j]))]) != 0:
+        #                 for j in range(len(dvar[n][m])):
+        #                     worksheet4.write(2 + ii, 0, self.compartment_name[n])
+        #                     worksheet4.write(2 + ii, 1, self.compartment_name[m])
+        #                     worksheet4.write(2 + ii, 2, j)
+        #                     for t in range(len(dvar[n][m][j])):
+        #                         worksheet4.write(2 + ii, 3 + t, dvar[n][m][j][t])
+        #                     ii += 1
+        # if lhs != None:
+        #     worksheet5 = workbook.add_sheet('LHS')
+        #     worksheet5.write(0, 0, 'Value of the LHS of constraints and the objective function')
+        #     worksheet5.write(1, 0, 'Obj/Constraint name')
+        #     worksheet5.write(1, 1, 'LHS (Simulation)')
+        #     ii = 0
+        #     for i in range(len(lhs)):
+        #         worksheet5.write(2 + ii, 0, lhs[i][0])
+        #         for s in range(len(lhs[i][1])):
+        #             worksheet5.write(2 + ii, 1 + s, lhs[i][1][s])
+        #         ii += 1
+        # workbook.save(filename + '.xls')
+
+        outwb.save(filename + '.xls')
+        # outwb.close()
 
     def get_solution_compartment(self, compartment=None):
         if isinstance(compartment, str):
@@ -4665,8 +5363,7 @@ class REALM():
                 n[i] = get_keys(self.compartment_name, compartmentfrom[i])[0]
                 m[i] = get_keys(self.compartment_name, compartmentto[i])[0]
                 try:
-                    if self.solver == 'cplex':
-                        x.update({(compartmentfrom[i], compartmentto[i]): [
+                    x.update({(compartmentfrom[i], compartmentto[i]): [
                             [round(self.bestsol[3][n[i]][m[i]][j][t], 6)
                              for t in range(self.Time)] for j in range(self.group)]})
                 except:
@@ -4688,11 +5385,12 @@ class REALM():
             name = [name]
         else:
             X = {}
+            print(list(self.custom_var.keys()))
             for i in range(len(name)):
+                print([name[i]], str(name[i]) in list(self.custom_var.keys()))
                 if name[i] in self.custom_var.keys():
                     try:
-                        if self.solver == 'cplex':
-                            X.update({name[i]: self.bestsol[-1][name[i]]})
+                        X.update({name[i]: self.bestsol[-1][name[i]]})
                     except:
                         if self.solver == 'cplex':
                             X.update({name[i]: self.model.solution.get_values(name[i])})
@@ -4702,17 +5400,18 @@ class REALM():
                     raise ValueError('name is not found')
             return X
 
-    def Solution_print(self,X:tuple=None, x:tuple=None, xc:tuple=None):
+    def Solution_print(self,Z:tuple=None, x:tuple=None, xc:tuple=None):
         if self.status != 0:
-            if X != None:
+            if Z != None:
                 print('============== Compartment ===============')
-                for n in X.keys():
-                    print(n)
+                for n in Z.keys():
+                    # print(n)
                     for j in range(self.group):
-                        print(X[n][j])
-                    print('Total = ', [sum([X[n][j][t] for j in range(self.group)]) for t in range(self.Time)])
+                        print(Z[n][j])
+                    print('Total = ', [sum([Z[n][j][t] for j in range(self.group)]) for t in range(self.Time)])
             if x != None:
                 print('============= Flow decision variable ================')
+                # print(x)
                 for n in x.keys():
                     print('From compartment ', n[0], 'to compartment', n[1])
                     for j in range(self.group):
@@ -4720,11 +5419,12 @@ class REALM():
 
             if xc != None:
                 print('============= Customized decision variable ================')
+                # print(xc)
                 for n in xc.keys():
-                    for j in range(self.group):
-                        print(n, xc[n])
+                    print(n, xc[n])
         else:
             raise ValueError('No solution')
+
     def set_estimated_parameter_bound(self, ub:dict, lb:dict, latin=1000):
         for n in ub.keys():
             if len(n) == 1:
@@ -4742,6 +5442,7 @@ class REALM():
                          for i in range(latin - 1)] for j in range(self.group)]
                 temp = random.shuffle(temp)
                 self.latin_params3.update({n: temp})
+
     def set_log_stream_SO(self, label=0, file:str='model_log_stream'):
         self.__log_stream = label
         self.__log_file = file
