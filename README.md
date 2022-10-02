@@ -1,7 +1,7 @@
 # Robust Epidemiological AnaLytics Modeling (REALM) toolkit
 The repository contains code for a epidemiological model utilized in the research effort of us. Code created by Chenyi Fu (chenyi_fu_201509@163.com) and please CITE the following when you are utilizing our results：
 
-Chenyi Fu, Minglong Zhou, Melvyn Sim, Robust Epidemiological Analytics, 2022.
+Chenyi Fu, Minglong Zhou, Melvyn Sim, Kelvin Bryan Tan. Robust Epidemiological Analytics, 2022.
 
 This repository contains multiple files, most of them being archived in the `REALM` folder:
 1. `REALM/REAML.py` - The current version of main code implemented in our work. It contains multiple functions and users can implement their deterministic/stochastic/robust epidemiological forecast and deterministic/robust optimization models in a straightforward fashion.
